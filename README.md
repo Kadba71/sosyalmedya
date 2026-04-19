@@ -10,6 +10,7 @@ Telegram uzerinden onayli ilerleyen, 3 agent mantiginda tasarlanmis, Railway uze
 - Video uretimi 9:16 short formatinda toplam 20 saniyedir
 - Uretim 2 adet 10 saniyelik segment halinde yapilir
 - Segmentler sonradan ffmpeg ile tek videoda birlestirilebilir
+- Final videoya otomatik Turkce TTS dublaj katmani eklenir
 - Video onayi sonrasi platform bazli kapak promptlari otomatik uretilebilir
 - Onayli kapak promptlarindan Flux ile kapak gorselleri uretilir
 - Publish sonucunda platform bazli kapak uygulama raporu doner
@@ -250,6 +251,23 @@ Akis:
 2. Video isteme asamasinda bu brief 2 adet `10 saniyelik` segmente bolunur.
 3. Ikinci segment brief'i, birinci segmentin son karesinden devam edecek sekilde continuity talimati alir.
 4. Her iki segment hazir oldugunda merge adimi ile tek dosyada birlestirilebilir.
+5. Merge sonrasi son dosyaya Turkce TTS dublaj sesi eklenir; bu katman promptten turetilen ayrik anlatim metni ile calisir.
+
+TTS ayarlari:
+
+```bash
+TTS_ENABLED=true
+TTS_VOICE=tr-TR-EmelNeural
+TTS_RATE=+0%
+TTS_VOLUME=+0%
+TTS_MAX_WORDS=65
+```
+
+Topic arastirma davranisi:
+
+- `/topics` artik varsayilan olarak 10 konu dondurur.
+- Video uretimi yapilan konu `used_topics` olarak niche metadata icinde not edilir.
+- Sonraki `/topics` cagrilarinda daha once video uretilmis ayni konu yeniden onerilmez.
 
 ## Kapak Gorsel Akisi
 

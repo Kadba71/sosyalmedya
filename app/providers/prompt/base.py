@@ -5,7 +5,10 @@ COMMON_PROMPT_DIRECTIVE = (
     "Tum spoken dialogue, voice-over ve anlatici metni yalnizca Turkce olmali; Ingilizce veya baska dilde seslendirme kullanma. "
     "Anlatim hikaye anlatir gibi akici, merak uyandirici ve duygusal ritimli olmali. "
     "Sahneler sinematik, detayli ve zengin olsun: guclu acilis karesi, belirgin ana ozne, derinlik hissi, katmanli arka plan, tutarli isik, dogal kamera hareketi ve dikkat cekici gecisler kullan. "
-    "Sessiz goruntu istemiyorum; anlamli ortam sesi, muzik hissi ve anlatimi destekleyen ses tasarimi bulunmali."
+    "Kareler bos veya cansiz gorunmesin; arka planda konuya uygun hareket, cevresel detay, gercekci doku ve gozun takip edecegi ikinci plan aksiyonlari olsun. "
+    "Her bolum farkli bir cekim mantigi tasimak zorunda: yakin plan, orta plan veya hareketli kadraj gibi degiskenlik ekle ama ayni ana fikre sadik kal. "
+    "Oznenin hareketleri ve cevre dinamikleri dogrudan konuyla baglantili olmali; rastgele estetige kacma. "
+    "Sessiz goruntu istemiyorum; anlamli ortam sesi, muzik hissi ve anlatimi destekleyen ses tasarimi bulunmali. Son video ayrica Turkce TTS dublaj katmaniyla desteklenecek sekilde net bir anlatim akisina sahip olmali."
 )
 
 
@@ -40,6 +43,8 @@ class DummyPromptProvider(PromptProvider):
                         "segment_count": 2,
                         "segment_duration_seconds": 10,
                         "enable_audio": True,
+                        "enable_tts": True,
+                        "tts_language": "tr-TR",
                         "narration_style": "turkish_storytelling_voiceover",
                         "continuation_rule": "segment_2_continues_from_segment_1_last_frame",
                     },
@@ -73,6 +78,8 @@ class DummyPromptProvider(PromptProvider):
                 "segment_count": 2,
                 "segment_duration_seconds": 10,
                 "enable_audio": True,
+                "enable_tts": True,
+                "tts_language": "tr-TR",
                 "narration_style": "turkish_storytelling_voiceover",
                 "continuation_rule": "segment_2_continues_from_segment_1_last_frame",
             },

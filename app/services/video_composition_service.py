@@ -107,6 +107,9 @@ class VideoCompositionService:
             "segment_paths": [path.as_posix() for path in segment_paths],
         }
 
+    def video_public_url(self, asset_path: Path) -> str | None:
+        return self._public_asset_url(asset_path)
+
     def extract_last_frame(self, *, video_id: int, segment_index: int, video_url: str) -> str:
         ffmpeg_path = shutil.which("ffmpeg")
         if not ffmpeg_path:

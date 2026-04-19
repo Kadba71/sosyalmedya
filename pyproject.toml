@@ -11,6 +11,7 @@ requires-python = ">=3.11"
 dependencies = [
     "apscheduler>=3.10.4,<4.0.0",
     "cryptography>=42.0.8,<43.0.0",
+    "edge-tts>=6.1.18,<7.0.0",
     "fastapi>=0.115.0,<1.0.0",
     "httpx>=0.28.1,<1.0.0",
     "psycopg[binary]>=3.2.3,<4.0.0",

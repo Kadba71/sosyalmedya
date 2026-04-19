@@ -47,7 +47,7 @@ class TrendProvider(Protocol):
     def discover_trends(self, *, market: str) -> list[TrendResult]:
         ...
 
-    def discover_topics(self, *, niche_name: str, niche_description: str, market: str, niche_context: dict | None = None, count: int = 5) -> list[TopicResult]:
+    def discover_topics(self, *, niche_name: str, niche_description: str, market: str, niche_context: dict | None = None, count: int = 10) -> list[TopicResult]:
         ...
 
 

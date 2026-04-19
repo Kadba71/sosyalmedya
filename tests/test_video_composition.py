@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.config import Settings
 from app.db.models import Base, Niche, Project, Prompt, User, VideoStatus
+from app.providers.base import TopicResult
 from app.providers.video.base import PiAPIKlingVideoProvider, extract_video_url
 from app.services.orchestrator import OrchestratorService
 from app.services.video_composition_service import VideoCompositionService
@@ -477,3 +478,68 @@ def test_orchestrator_refresh_video_reads_kling_three_nested_output(monkeypatch)
     assert refreshed.format_payload["segments"][0]["preview_url"] == "https://cdn.example.com/seg-1.mp4"
     assert refreshed.format_payload["segments"][1]["preview_url"] == "https://cdn.example.com/seg-2.mp4"
     assert refreshed.status == VideoStatus.READY
+
+
+def test_merge_video_segments_applies_tts_dubbing(monkeypatch, tmp_path: Path) -> None:
+    session = build_session()
+    settings = Settings(secret_key="test-secret", storage_path=tmp_path, tts_enabled=True)
+    prompt = seed_prompt(session)
+    video = OrchestratorService(session, settings).request_video(prompt)
+    orchestrator = OrchestratorService(session, settings)
+    merged_path = tmp_path / "video-1" / "merged.mp4"
+    dubbed_path = tmp_path / "video-1" / "tts" / "merged-tr-dubbed.mp4"
+    merged_path.parent.mkdir(parents=True, exist_ok=True)
+    dubbed_path.parent.mkdir(parents=True, exist_ok=True)
+    merged_path.write_bytes(b"merged")
+    dubbed_path.write_bytes(b"dubbed")
+
+    monkeypatch.setattr(
+        orchestrator.video_composition,
+        "merge_segments",
+        lambda current_video: {"status": "completed", "merged_storage_path": merged_path.as_posix(), "segment_paths": []},
+    )
+    monkeypatch.setattr(
+        orchestrator.narration_service,
+        "create_dubbed_video",
+        lambda current_video: {
+            "status": "completed",
+            "script": "Turkce seslendirme metni",
+            "audio_path": (tmp_path / "video-1" / "tts" / "narration.mp3").as_posix(),
+            "dubbed_storage_path": dubbed_path.as_posix(),
+            "voice": "tr-TR-EmelNeural",
+        },
+    )
+
+    merged = orchestrator.merge_video_segments(video)
+
+    assert merged.storage_path == dubbed_path.as_posix()
+    assert merged.format_payload["tts"]["status"] == "completed"
+    assert merged.format_payload["tts"]["voice"] == "tr-TR-EmelNeural"
+
+
+def test_research_niche_topics_filters_used_topics(monkeypatch) -> None:
+    session = build_session()
+    settings = Settings(secret_key="test-secret", video_provider="dummy")
+    prompt = seed_prompt(session)
+    niche = prompt.niche
+    niche.context_payload = {"used_topics": [{"title": "Tekrar Eden Konu", "key": "tekrar eden konu"}]}
+    session.add(niche)
+    session.commit()
+
+    orchestrator = OrchestratorService(session, settings)
+
+    class FakeTrendProvider:
+        def discover_topics(self, **kwargs):
+            return [
+                TopicResult(title="Tekrar Eden Konu", summary="eski", interest_score=99),
+                TopicResult(title="Yeni Konu 1", summary="bir", interest_score=95),
+                TopicResult(title="Yeni Konu 2", summary="iki", interest_score=94),
+            ]
+
+    monkeypatch.setattr(orchestrator.providers, "trend_provider", lambda: FakeTrendProvider())
+
+    topics = orchestrator.research_niche_topics(niche, count=2)
+
+    assert len(topics) == 2
+    assert [item["title"] for item in topics] == ["Yeni Konu 1", "Yeni Konu 2"]
+    assert all(item["title"] != "Tekrar Eden Konu" for item in topics)

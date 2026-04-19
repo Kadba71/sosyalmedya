@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+from pathlib import Path
 import time
 
 from sqlalchemy.orm import Session
@@ -9,8 +10,12 @@ from app.providers.registry import ProviderRegistry
 from app.providers.video.base import extract_video_url
 from app.publishers.registry import PublisherRegistry
 from app.services.cover_workflow_service import CoverWorkflowService
+from app.services.narration_service import NarrationService
 from app.services.video_composition_service import VideoCompositionService
 from app.utils.security import TokenCipher
+
+
+DEFAULT_TOPIC_COUNT = 10
 
 
 class OrchestratorService:
@@ -20,6 +25,7 @@ class OrchestratorService:
         self.providers = ProviderRegistry(settings, session)
         self.publishers = PublisherRegistry(settings, TokenCipher(settings))
         self.video_composition = VideoCompositionService(settings)
+        self.narration_service = NarrationService(settings)
         self.cover_workflow = CoverWorkflowService(session, settings)
 
     def _start_run(self, agent_type: AgentType, payload: dict) -> AgentRun:
@@ -68,16 +74,35 @@ class OrchestratorService:
             self._fail_run(agent_run, str(exc))
             raise
 
-    def research_niche_topics(self, niche: Niche, *, count: int = 5) -> list[dict]:
+    def research_niche_topics(self, niche: Niche, *, count: int = DEFAULT_TOPIC_COUNT) -> list[dict]:
         agent_run = self._start_run(AgentType.SCAN, {"niche_id": niche.id, "mode": "topic_research", "count": count})
         try:
+            used_topics = self._used_topic_entries(niche)
+            requested_count = max(count * 3, count + len(used_topics))
+            niche_context = {
+                **(niche.context_payload or {}),
+                "used_topic_titles": [item["title"] for item in used_topics],
+                "excluded_topic_titles": [item["title"] for item in used_topics],
+                "desired_topic_count": count,
+            }
             topics = self.providers.trend_provider().discover_topics(
                 niche_name=niche.name,
                 niche_description=niche.description,
                 market=niche.project.market,
-                niche_context=niche.context_payload,
-                count=count,
+                niche_context=niche_context,
+                count=requested_count,
             )
+            used_keys = {item["key"] for item in used_topics}
+            seen_keys: set[str] = set()
+            filtered_topics = []
+            for item in topics:
+                topic_key = self._normalize_topic_key(item.title)
+                if not topic_key or topic_key in seen_keys or topic_key in used_keys:
+                    continue
+                seen_keys.add(topic_key)
+                filtered_topics.append(item)
+                if len(filtered_topics) >= count:
+                    break
             serialized_topics = [
                 {
                     "index": index,
@@ -88,10 +113,11 @@ class OrchestratorService:
                     "source": item.source,
                     "context_payload": item.context_payload,
                 }
-                for index, item in enumerate(topics, start=1)
+                for index, item in enumerate(filtered_topics, start=1)
             ]
             niche.context_payload = {
                 **(niche.context_payload or {}),
+                "used_topics": used_topics,
                 "researched_topics": serialized_topics,
             }
             self.session.add(niche)
@@ -142,6 +168,7 @@ class OrchestratorService:
                     **result.metadata_payload,
                     "selected_topic": selected_topic,
                     "topic_index": topic_index,
+                    "topic_key": self._normalize_topic_key(str(selected_topic.get("title") or "")),
                 },
             )
             self.session.add(prompt)
@@ -317,6 +344,7 @@ class OrchestratorService:
             )
             self.session.add(video)
             self.session.commit()
+            self._mark_topic_as_used(prompt=prompt, video=video)
             self._finish_run(agent_run, {"video_id": video.id, "provider": provider_name, "segment_count": len(segments)})
             return video
         except Exception as exc:
@@ -345,6 +373,28 @@ class OrchestratorService:
                 **merge_payload,
             },
         }
+        if self.settings.tts_enabled and bool(video.prompt.metadata_payload.get("enable_tts", True)):
+            try:
+                tts_payload = self.narration_service.create_dubbed_video(video)
+                video.storage_path = tts_payload["dubbed_storage_path"]
+                public_url = self.video_composition.video_public_url(Path(video.storage_path))
+                if public_url:
+                    video.preview_url = public_url
+                video.format_payload = {
+                    **video.format_payload,
+                    "tts": {
+                        **tts_payload,
+                        "public_url": public_url,
+                    },
+                }
+            except Exception as exc:
+                video.format_payload = {
+                    **video.format_payload,
+                    "tts": {
+                        "status": "failed",
+                        "error": str(exc),
+                    },
+                }
         self.session.commit()
         self.session.refresh(video)
         return video
@@ -477,6 +527,54 @@ class OrchestratorService:
         if lowered.startswith("http://") or lowered.startswith("https://"):
             return url
         return None
+
+    def _used_topic_entries(self, niche: Niche) -> list[dict]:
+        existing_entries = []
+        seen_keys: set[str] = set()
+        for item in list((niche.context_payload or {}).get("used_topics") or []):
+            title = str(item.get("title") or "").strip()
+            topic_key = self._normalize_topic_key(title or str(item.get("key") or ""))
+            if not topic_key or topic_key in seen_keys:
+                continue
+            seen_keys.add(topic_key)
+            existing_entries.append({"title": title or item.get("key") or "", "key": topic_key})
+
+        for prompt in niche.prompts:
+            selected_topic = (prompt.metadata_payload or {}).get("selected_topic") or {}
+            topic_title = str(selected_topic.get("title") or "").strip()
+            topic_key = self._normalize_topic_key(topic_title)
+            if not topic_key or topic_key in seen_keys:
+                continue
+            if not prompt.videos:
+                continue
+            seen_keys.add(topic_key)
+            existing_entries.append({"title": topic_title, "key": topic_key})
+        return existing_entries
+
+    def _mark_topic_as_used(self, *, prompt: Prompt, video: Video) -> None:
+        selected_topic = (prompt.metadata_payload or {}).get("selected_topic") or {}
+        topic_title = str(selected_topic.get("title") or "").strip()
+        topic_key = self._normalize_topic_key(topic_title)
+        if not topic_key:
+            return
+        niche = prompt.niche
+        used_topics = self._used_topic_entries(niche)
+        if any(item["key"] == topic_key for item in used_topics):
+            return
+        niche.context_payload = {
+            **(niche.context_payload or {}),
+            "used_topics": [
+                *used_topics,
+                {"title": topic_title, "key": topic_key, "video_id": video.id, "prompt_id": prompt.id},
+            ],
+        }
+        self.session.add(niche)
+        self.session.commit()
+
+    @staticmethod
+    def _normalize_topic_key(value: str) -> str:
+        normalized = "".join(char.lower() if char.isalnum() else " " for char in value)
+        return " ".join(normalized.split())
 
     def generate_cover_prompts(self, video: Video) -> dict:
         return self.cover_workflow.generate_cover_prompts(video)

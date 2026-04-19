@@ -36,7 +36,7 @@ class EditService:
             version=prompt.version + 1,
             status=PromptStatus.GENERATED,
             expires_at=datetime.utcnow() + timedelta(hours=self.settings.prompt_retention_hours),
-            metadata_payload={**revised.metadata_payload, "edited_from_prompt_id": prompt.id, "edit_request_id": request.id},
+            metadata_payload={**self._carry_forward_prompt_metadata(prompt), **revised.metadata_payload, "edited_from_prompt_id": prompt.id, "edit_request_id": request.id},
         )
         prompt.status = PromptStatus.REJECTED
         request.resolved = True
@@ -63,7 +63,7 @@ class EditService:
             version=prompt.version + 1,
             status=PromptStatus.GENERATED,
             expires_at=datetime.utcnow() + timedelta(hours=self.settings.prompt_retention_hours),
-            metadata_payload={**generated.metadata_payload, "regenerated_from_prompt_id": prompt.id},
+            metadata_payload={**self._carry_forward_prompt_metadata(prompt), **generated.metadata_payload, "regenerated_from_prompt_id": prompt.id},
         )
         prompt.status = PromptStatus.REJECTED
         self.session.add(new_prompt)
@@ -99,3 +99,12 @@ class EditService:
         self.session.add(request)
         self.session.flush()
         return request
+
+    @staticmethod
+    def _carry_forward_prompt_metadata(prompt: Prompt) -> dict:
+        metadata = prompt.metadata_payload or {}
+        carried: dict = {}
+        for key in ["selected_topic", "topic_index", "topic_key"]:
+            if key in metadata:
+                carried[key] = metadata[key]
+        return carried

@@ -26,6 +26,19 @@ class LLMChatClient:
         content = body["choices"][0]["message"]["content"]
         return json.loads(content)
 
+    def complete_text(self, *, model: str, system_prompt: str, user_prompt: str, temperature: float = 0.4) -> str:
+        payload = {
+            "model": model,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            "temperature": temperature,
+        }
+        body = self._request_chat_completion(payload)
+        content = body["choices"][0]["message"].get("content") or ""
+        return str(content).strip()
+
     def _request_chat_completion(self, payload: dict[str, Any]) -> dict[str, Any]:
         headers = {
             "Authorization": f"Bearer {self.api_key}",

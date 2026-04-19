@@ -25,6 +25,8 @@ class LLMPromptProvider(PromptProvider):
             "Every prompt must describe a 9:16 vertical short with a total runtime of 20 seconds split into exactly 2 scenes of 10 seconds each. "
             "Scene 2 must continue from the final visual composition of scene 1. "
             "Each prompt body must explicitly require Turkish spoken narration, story-like delivery, and meaningful synced audio, not silent footage. "
+            "The visual plan must feel dense and realistic: never allow empty frames, add detailed backgrounds, subject-linked movement, foreground and background actions, realistic textures, lighting continuity, and visible camera variation across the two scenes. "
+            "Every shot must stay tightly connected to the topic instead of generic cinematic filler. "
             "For each item include: title, body, target_platforms, tone, rank, hook, cta, visual_style. "
             "Target platforms should be arrays chosen from youtube, instagram, tiktok, facebook."
         )
@@ -56,6 +58,8 @@ class LLMPromptProvider(PromptProvider):
                         "segment_count": 2,
                         "segment_duration_seconds": 10,
                         "enable_audio": True,
+                        "enable_tts": True,
+                        "tts_language": "tr-TR",
                         "narration_style": "turkish_storytelling_voiceover",
                         "continuation_rule": "segment_2_continues_from_segment_1_last_frame",
                     },
@@ -84,6 +88,7 @@ class LLMPromptProvider(PromptProvider):
             "The revised prompt must remain a 9:16 vertical short with a total runtime of 20 seconds split into exactly 2 scenes of 10 seconds each. "
             "Scene 2 must continue from the final visual composition of scene 1. "
             "The revised body must explicitly require Turkish spoken narration, story-like delivery, and audible sound design. "
+            "Keep the result visually rich and realistic with no empty frames, topic-linked motion, layered backgrounds, environmental activity, and clear shot variation. "
             "Return one revised prompt with: title, body, target_platforms, tone, rank, hook, cta, visual_style."
         )
         try:
@@ -112,6 +117,8 @@ class LLMPromptProvider(PromptProvider):
                 "segment_count": 2,
                 "segment_duration_seconds": 10,
                 "enable_audio": True,
+                "enable_tts": True,
+                "tts_language": "tr-TR",
                 "narration_style": "turkish_storytelling_voiceover",
                 "continuation_rule": "segment_2_continues_from_segment_1_last_frame",
             },

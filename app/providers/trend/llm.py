@@ -55,12 +55,13 @@ class LLMTrendProvider(TrendProvider):
             )
         return results
 
-    def discover_topics(self, *, niche_name: str, niche_description: str, market: str, niche_context: dict | None = None, count: int = 5) -> list[TopicResult]:
+    def discover_topics(self, *, niche_name: str, niche_description: str, market: str, niche_context: dict | None = None, count: int = 10) -> list[TopicResult]:
         system_prompt = (
             "You are an expert Turkish-first topic researcher for short-form social media. "
             "Return only valid JSON with a top-level key named topics."
         )
         signals = (niche_context or {}).get("market_signals") or self.research_service.collect_market_signals(market)
+        excluded_titles = list((niche_context or {}).get("used_topic_titles") or (niche_context or {}).get("excluded_topic_titles") or [])
         user_prompt = (
             f"A niche was selected for market {market}. Niche name: {niche_name}. "
             f"Niche description: {niche_description}. "
@@ -69,6 +70,8 @@ class LLMTrendProvider(TrendProvider):
             "For each item include: title, summary, interest_score (0-100), keywords, content_angle, suggested_hook, viewer_problem, source. "
             "All topic titles and summaries must be written in Turkish. "
             "Prefer topics suitable for short Turkish social video automation. "
+            "Do not repeat or paraphrase the already used topics listed in the exclusion set. "
+            f"Excluded topic titles JSON: {excluded_titles}. "
             f"Niche context JSON: {niche_context or {}}. Signals JSON: {signals}"
         )
         try:

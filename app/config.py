@@ -49,6 +49,11 @@ class Settings(BaseSettings):
     kling_default_duration: int = 10
     kling_default_aspect_ratio: str = "9:16"
     kling_enable_audio: bool = True
+    tts_enabled: bool = True
+    tts_voice: str = "tr-TR-EmelNeural"
+    tts_rate: str = "+0%"
+    tts_volume: str = "+0%"
+    tts_max_words: int = 65
     video_total_duration_seconds: int = 20
     video_segment_duration_seconds: int = 10
     video_segment_count: int = 2
