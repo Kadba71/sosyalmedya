@@ -1248,6 +1248,71 @@ def test_merge_video_command_reports_merge_result(monkeypatch) -> None:
     assert "merged.mp4" in result["message"]
 
 
+def test_refresh_video_command_reports_updated_video(monkeypatch) -> None:
+    session = build_session()
+    settings = Settings(secret_key="test-secret")
+    service = TelegramBotService(session, settings)
+
+    service.handle_update(
+        TelegramWebhookPayload(
+            message={
+                "text": "/start",
+                "chat": {"id": 111},
+                "from": {"id": 222, "first_name": "Owner", "username": "owner"},
+            }
+        )
+    )
+
+    owner = session.query(User).first()
+    project = session.query(Project).filter(Project.user_id == owner.id).one()
+    niche = Niche(project_id=project.id, name="Trend", description="Desc", source="web", trend_score=91, context_payload={})
+    session.add(niche)
+    session.flush()
+    prompt = Prompt(
+        niche_id=niche.id,
+        title="Prompt",
+        body="Metin",
+        target_platforms=["youtube"],
+        tone="engaging",
+        rank=1,
+        expires_at=datetime.utcnow() + timedelta(hours=24),
+        metadata_payload={},
+    )
+    session.add(prompt)
+    session.flush()
+    video = Video(
+        prompt_id=prompt.id,
+        status=VideoStatus.REQUESTED,
+        title="Video",
+        storage_path=None,
+        preview_url=None,
+        provider_name="kling",
+        provider_job_id="job-1",
+        format_payload={"segments": [{"segment_index": 1, "status": "requested", "provider_job_id": "job-1", "preview_url": "https://cdn.example.com/video.mp4"}]},
+        expires_at=datetime.utcnow() + timedelta(hours=24),
+    )
+    session.add(video)
+    session.commit()
+
+    ready_video = session.get(Video, video.id)
+    ready_video.status = VideoStatus.READY
+    ready_video.preview_url = "https://cdn.example.com/video.mp4"
+    monkeypatch.setattr(service.orchestrator, "refresh_video", lambda current_video: ready_video)
+
+    result = service.handle_update(
+        TelegramWebhookPayload(
+            message={
+                "text": f"/refresh_video {video.id}",
+                "chat": {"id": 111},
+                "from": {"id": 222, "first_name": "Owner", "username": "owner"},
+            }
+        )
+    )
+
+    assert "Video durumu yenilendi." in result["message"]
+    assert "https://cdn.example.com/video.mp4" in result["message"]
+
+
 def test_video_card_mentions_segment_plan() -> None:
     session = build_session()
     settings = Settings(secret_key="test-secret", video_provider="dummy")

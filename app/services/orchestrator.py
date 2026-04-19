@@ -339,6 +339,107 @@ class OrchestratorService:
         self.session.refresh(video)
         return video
 
+    def refresh_video(self, video: Video) -> Video:
+        video_provider = self.providers.video_provider()
+        segments = [dict(item) for item in (video.format_payload.get("segments") or [])]
+        if not segments:
+            raise ValueError("Video segment bilgisi bulunamadi.")
+
+        preview_url = video.preview_url
+        continuation_frame_url: str | None = None
+        for index, segment in enumerate(segments):
+            segment_status = str(segment.get("status") or "").lower()
+            provider_job_id = segment.get("provider_job_id")
+
+            if provider_job_id and hasattr(video_provider, "get_task") and segment_status in {"requested", "pending", "processing", "staged", "ready"}:
+                task = video_provider.get_task(provider_job_id)
+                output = task.get("output") or {}
+                refreshed_preview_url = output.get("video") or output.get("video_url") or segment.get("preview_url")
+                task_status = str(task.get("status") or segment_status).lower()
+                segment["task"] = task
+                segment["preview_url"] = refreshed_preview_url
+                segment["format_payload"] = {**(segment.get("format_payload") or {}), "task": task}
+                if task_status == "completed":
+                    segment["status"] = "ready"
+                elif task_status == "failed":
+                    segment["status"] = "failed"
+                else:
+                    segment["status"] = task_status or segment_status or "requested"
+
+            if segment.get("status") == "ready" and segment.get("preview_url"):
+                preview_url = segment.get("preview_url") or preview_url
+                try:
+                    continuation_frame_url = self.video_composition.extract_last_frame(
+                        video_id=video.id,
+                        segment_index=int(segment.get("segment_index") or index + 1),
+                        video_url=str(segment.get("preview_url")),
+                    )
+                except Exception:
+                    continuation_frame_url = None
+
+            if segment.get("status") == "blocked_waiting_previous_segment":
+                previous_segment = segments[index - 1] if index > 0 else None
+                if previous_segment and previous_segment.get("status") == "ready" and previous_segment.get("preview_url"):
+                    if not continuation_frame_url:
+                        try:
+                            continuation_frame_url = self.video_composition.extract_last_frame(
+                                video_id=video.id,
+                                segment_index=int(previous_segment.get("segment_index") or index),
+                                video_url=str(previous_segment.get("preview_url")),
+                            )
+                        except Exception:
+                            continuation_frame_url = None
+                    if continuation_frame_url:
+                        result = video_provider.request_video(
+                            prompt_title=str(segment.get("title") or video.title),
+                            prompt_body=str(segment.get("prompt_body") or video.prompt.body),
+                            market=video.prompt.niche.project.market,
+                            initial_frame_url=continuation_frame_url,
+                        )
+                        segment["provider_job_id"] = result.provider_job_id
+                        segment["provider_name"] = result.provider_name
+                        segment["preview_url"] = result.preview_url
+                        segment["storage_path"] = result.storage_path
+                        segment["initial_frame_url"] = continuation_frame_url
+                        segment["format_payload"] = dict(result.format_payload)
+                        segment["status"] = "requested"
+                        if result.provider_job_id and hasattr(video_provider, "get_task"):
+                            task = self._poll_video_task(video_provider, result.provider_job_id)
+                            output = task.get("output") or {}
+                            segment["task"] = task
+                            segment["preview_url"] = output.get("video") or output.get("video_url") or segment.get("preview_url")
+                            task_status = str(task.get("status") or "requested").lower()
+                            if task_status == "completed":
+                                segment["status"] = "ready"
+                            elif task_status == "failed":
+                                segment["status"] = "failed"
+                            else:
+                                segment["status"] = task_status or "requested"
+
+        any_failed = any(str(item.get("status") or "").lower() == "failed" for item in segments)
+        all_ready = all(str(item.get("status") or "").lower() == "ready" and item.get("preview_url") for item in segments)
+        video.status = VideoStatus.REJECTED if any_failed else VideoStatus.READY if all_ready else VideoStatus.REQUESTED
+        video.preview_url = preview_url
+        video.provider_job_id = next((item.get("provider_job_id") for item in segments if item.get("provider_job_id")), None)
+        video.format_payload = {
+            **video.format_payload,
+            "segments": segments,
+            "merge": {
+                **(video.format_payload.get("merge") or {}),
+                "required": True,
+                "status": "pending" if all_ready else "waiting_segments",
+                "strategy": "ffmpeg_concat",
+            },
+            "continuation": {
+                **(video.format_payload.get("continuation") or {}),
+                "status": "ready" if all_ready else "waiting_previous_segment",
+            },
+        }
+        self.session.add(video)
+        self.session.commit()
+        self.session.refresh(video)
+        return video
+
     def generate_cover_prompts(self, video: Video) -> dict:
         return self.cover_workflow.generate_cover_prompts(video)
 

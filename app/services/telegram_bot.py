@@ -98,6 +98,8 @@ class TelegramBotService:
                 return self._regenerate_video_command(text)
             if text.startswith("/merge_video"):
                 return self._merge_video_command(text)
+            if text.startswith("/refresh_video"):
+                return self._refresh_video_command(text)
             if text.startswith("/cover_prompts"):
                 return self._cover_prompts_command(text)
             if text.startswith("/approve_cover_prompt"):
@@ -459,6 +461,17 @@ class TelegramBotService:
             "video_id": merged_video.id,
         }
 
+    def _refresh_video_command(self, text: str) -> dict:
+        video_id = self._parse_single_int_argument(text, command="/refresh_video")
+        video = self.session.get(Video, video_id)
+        if video is None:
+            return {"message": "Video bulunamadi."}
+        try:
+            refreshed_video = self.orchestrator.refresh_video(video)
+        except Exception as exc:
+            return {"message": f"Video durumu yenilenemedi: {exc}"}
+        return self._video_approval_card(refreshed_video, prefix="Video durumu yenilendi.")
+
     def _cover_prompts_command(self, text: str) -> dict:
         video_id = self._parse_single_int_argument(text, command="/cover_prompts")
         video = self.session.get(Video, video_id)
@@ -621,7 +634,7 @@ class TelegramBotService:
                 f"Provider: {video.provider_name}\n"
                 f"Sure: {video.format_payload.get('total_duration_seconds', 20)} saniye toplam, {video.format_payload.get('segment_count', 2)}x{video.format_payload.get('segment_duration_seconds', 10)} saniye\n"
                 f"Onizleme: {preview}\n\n"
-                "Sonraki adim: Onayla, reddet veya yeniden uret. Video brief duzenlemek icin /edit_video kullan. Segmentler hazirsa /merge_video ile birlestir."
+                "Sonraki adim: Onayla, reddet veya yeniden uret. Video brief duzenlemek icin /edit_video kullan. Islem suruyorsa /refresh_video ile son durumu cek. Segmentler hazirsa /merge_video ile birlestir."
             ),
             "video_id": video.id,
             "reply_markup": self._build_inline_keyboard(
@@ -922,6 +935,8 @@ class TelegramBotService:
             "Secilen video icin yeni bir video uretim istegi baslatir.\n\n"
             "/merge_video <video_id>\n"
             "Iki adet 10 saniyelik segmenti tek dosyada birlestirmeyi dener.\n\n"
+            "/refresh_video <video_id>\n"
+            "PiAPI tarafinda sonradan tamamlanan video segmentlerini tekrar cekip gunceller.\n\n"
             "/cover_prompts <video_id>\n"
             "Video onayi sonrasi platform bazli kapak promptlarini uretir veya listeler.\n\n"
             "/approve_cover_prompt <video_id>\n"
