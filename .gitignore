@@ -1,0 +1,15 @@
+.venv/
+__pycache__/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.nexus/
+*.egg-info/
+.env
+*.env.local
+app.db
+*.db
+*.sqlite
+*.sqlite3
+storage/videos/*
+!storage/videos/.gitkeep

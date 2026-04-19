@@ -1,0 +1,7 @@
+- name: ollama_chat/deepseek-r1:32b
+  extra_params:
+    num_ctx: 65536
+
+- name: ollama_chat/qwen3:32b
+  extra_params:
+    num_ctx: 65536

@@ -1,0 +1,7 @@
+auto-commits: false
+dark-mode: true
+pretty: true
+stream: true
+gitignore: true
+watch-files: false
+map-tokens: "4096"

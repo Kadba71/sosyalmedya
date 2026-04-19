@@ -1,0 +1,106 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: sosyal-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: sosyal
+      POSTGRES_USER: sosyal
+      POSTGRES_PASSWORD: sosyal-change-me
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sosyal -d sosyal"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: sosyal-backend
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      ollama:
+        condition: service_healthy
+    env_file:
+      - deploy/.env.prod.example
+    environment:
+      DATABASE_URL: postgresql+psycopg://sosyal:sosyal-change-me@postgres:5432/sosyal
+      OLLAMA_API_BASE: http://ollama:11434/v1
+    expose:
+      - "8000"
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: sosyal-ollama
+    restart: unless-stopped
+    volumes:
+      - ollama-data:/root/.ollama
+      - ./docker/ollama/pull-models.sh:/usr/local/bin/pull-models.sh:ro
+    environment:
+      OLLAMA_HOST: 0.0.0.0:11434
+    entrypoint: ["/bin/sh", "-c"]
+    command: "ollama serve & sleep 5; /usr/local/bin/pull-models.sh; wait"
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 45s
+
+  aider:
+    image: paulgauthier/aider-full:latest
+    container_name: sosyal-aider
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_started
+      ollama:
+        condition: service_healthy
+    working_dir: /workspace
+    volumes:
+      - ./:/workspace
+      - aider-data:/home/aider/.aider
+      - ./docker/aider/entrypoint.sh:/usr/local/bin/aider-entrypoint.sh:ro
+      - ./docker/aider/worker.py:/usr/local/bin/aider-worker.py:ro
+      - ./docker/aider/.aider.conf.yml:/home/aider/.aider.conf.yml:ro
+      - ./docker/aider/.aider.model.settings.yml:/home/aider/.aider.model.settings.yml:ro
+    env_file:
+      - deploy/.env.prod.example
+    environment:
+      AIDER_TASK_MODE: worker
+      AIDER_BACKEND_URL: http://backend:8000
+      OLLAMA_API_BASE: http://ollama:11434
+      OLLAMA_API_KEY: ollama
+      AIDER_MODEL: ollama_chat/deepseek-r1:32b
+      AIDER_EDITOR_MODEL: ollama_chat/qwen3:32b
+      AIDER_ANALYTICS: false
+      AIDER_AUTO_COMMITS: false
+      AIDER_SHOW_MODEL_WARNINGS: false
+    entrypoint: ["/bin/sh", "/usr/local/bin/aider-entrypoint.sh"]
+
+  caddy:
+    image: caddy:2.8-alpine
+    container_name: sosyal-caddy
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_started
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+
+volumes:
+  postgres-data:
+  ollama-data:
+  aider-data:
+  caddy-data:
+  caddy-config:
