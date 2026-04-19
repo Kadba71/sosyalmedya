@@ -4,6 +4,7 @@ import json
 
 from app.providers.base import PromptProvider, PromptResult
 from app.providers.llm_client import LLMChatClient
+from app.providers.prompt.base import enrich_prompt_body
 
 
 class LLMPromptProvider(PromptProvider):
@@ -40,7 +41,7 @@ class LLMPromptProvider(PromptProvider):
             results.append(
                 PromptResult(
                     title=self._coerce_text(item.get("title"), fallback="Baslik uretilmedi"),
-                    body=self._coerce_text(item.get("body"), fallback="Prompt govdesi uretilmedi"),
+                    body=enrich_prompt_body(self._coerce_text(item.get("body"), fallback="Prompt govdesi uretilmedi")),
                     target_platforms=self._coerce_platforms(item.get("target_platforms")),
                     tone=self._coerce_text(item.get("tone"), fallback="authoritative"),
                     rank=int(item.get("rank", 1)),
@@ -95,7 +96,7 @@ class LLMPromptProvider(PromptProvider):
         item = payload.get("prompt") or {}
         return PromptResult(
             title=self._coerce_text(item.get("title"), fallback=f"{current_title} - revised"),
-            body=self._coerce_text(item.get("body"), fallback=f"{current_body}\n\nRevision instruction: {instruction}"),
+            body=enrich_prompt_body(self._coerce_text(item.get("body"), fallback=f"{current_body}\n\nRevision instruction: {instruction}")),
             target_platforms=self._coerce_platforms(item.get("target_platforms")),
             tone=self._coerce_text(item.get("tone"), fallback="authoritative"),
             rank=int(item.get("rank", 1)),

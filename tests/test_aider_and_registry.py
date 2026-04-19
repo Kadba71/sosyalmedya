@@ -135,6 +135,8 @@ def test_llm_prompt_provider_normalizes_non_string_fields(monkeypatch) -> None:
     assert isinstance(results[0], PromptResult)
     assert results[0].title == "Osmanli'nin Kayip Hazineleri"
     assert "Acilis sahnesi" in results[0].body
+    assert "yalnizca Turkce" in results[0].body
+    assert "sinematik, detayli ve zengin" in results[0].body
     assert results[0].target_platforms == ["youtube"]
     assert results[0].tone == "dramatic"
     assert results[0].metadata_payload["hook"] == "Bu hazine neden bulunamadi?"

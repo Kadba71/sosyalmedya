@@ -1,6 +1,21 @@
 from app.providers.base import PromptProvider, PromptResult
 
 
+COMMON_PROMPT_DIRECTIVE = (
+    "Tum spoken dialogue, voice-over ve anlatici metni yalnizca Turkce olmali; Ingilizce veya baska dilde seslendirme kullanma. "
+    "Anlatim hikaye anlatir gibi akici, merak uyandirici ve duygusal ritimli olmali. "
+    "Sahneler sinematik, detayli ve zengin olsun: guclu acilis karesi, belirgin ana ozne, derinlik hissi, katmanli arka plan, tutarli isik, dogal kamera hareketi ve dikkat cekici gecisler kullan. "
+    "Sessiz goruntu istemiyorum; anlamli ortam sesi, muzik hissi ve anlatimi destekleyen ses tasarimi bulunmali."
+)
+
+
+def enrich_prompt_body(body: str) -> str:
+    normalized_body = body.strip()
+    if not normalized_body:
+        normalized_body = "9:16 dikey formatta etkileyici bir kisa video uret."
+    return f"{normalized_body}\n\nZorunlu uretim direktifi: {COMMON_PROMPT_DIRECTIVE}"
+
+
 class DummyPromptProvider(PromptProvider):
     def generate_prompts(self, *, niche_name: str, niche_description: str, market: str, count: int = 10) -> list[PromptResult]:
         prompts: list[PromptResult] = []
@@ -30,6 +45,7 @@ class DummyPromptProvider(PromptProvider):
                     },
                 )
             )
+            prompts[-1].body = enrich_prompt_body(prompts[-1].body)
         return prompts
 
     def revise_prompt(
@@ -44,7 +60,7 @@ class DummyPromptProvider(PromptProvider):
     ) -> PromptResult:
         return PromptResult(
             title=f"{current_title} - revize",
-            body=f"{current_body}\n\nRevizyon talimati: {instruction}",
+            body=enrich_prompt_body(f"{current_body}\n\nRevizyon talimati: {instruction}"),
             target_platforms=["youtube", "instagram", "tiktok", "facebook"],
             tone="authoritative",
             rank=1,
