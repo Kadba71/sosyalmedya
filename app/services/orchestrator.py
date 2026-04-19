@@ -198,9 +198,11 @@ class OrchestratorService:
             preview_url: str | None = None
             provider_name: str | None = None
             continuation_frame_url: str | None = None
+            previous_segment_ready = False
             for segment_request in segment_requests:
-                current_initial_frame_url = continuation_frame_url if segment_request["continuation_from_previous_frame"] else None
-                if segment_request["continuation_from_previous_frame"] and not current_initial_frame_url:
+                raw_initial_frame_url = continuation_frame_url if segment_request["continuation_from_previous_frame"] else None
+                current_initial_frame_url = self._provider_accessible_url(raw_initial_frame_url)
+                if segment_request["continuation_from_previous_frame"] and not previous_segment_ready:
                     status = VideoStatus.REQUESTED
                     segments.append(
                         {
@@ -215,7 +217,7 @@ class OrchestratorService:
                             "preview_url": None,
                             "storage_path": None,
                             "status": "blocked_waiting_previous_segment",
-                            "initial_frame_url": None,
+                            "initial_frame_url": current_initial_frame_url,
                             "task": None,
                             "format_payload": {"reason": "previous_segment_not_ready"},
                         }
@@ -259,6 +261,10 @@ class OrchestratorService:
                         )
                     except Exception:
                         continuation_frame_url = None
+                    previous_segment_ready = True
+                else:
+                    continuation_frame_url = None
+                    previous_segment_ready = False
                 segments.append(
                     {
                         "segment_index": segment_request["segment_index"],
@@ -390,32 +396,32 @@ class OrchestratorService:
                             )
                         except Exception:
                             continuation_frame_url = None
-                    if continuation_frame_url:
-                        result = video_provider.request_video(
-                            prompt_title=str(segment.get("title") or video.title),
-                            prompt_body=str(segment.get("prompt_body") or video.prompt.body),
-                            market=video.prompt.niche.project.market,
-                            initial_frame_url=continuation_frame_url,
-                        )
-                        segment["provider_job_id"] = result.provider_job_id
-                        segment["provider_name"] = result.provider_name
-                        segment["preview_url"] = result.preview_url
-                        segment["storage_path"] = result.storage_path
-                        segment["initial_frame_url"] = continuation_frame_url
-                        segment["format_payload"] = dict(result.format_payload)
-                        segment["status"] = "requested"
-                        if result.provider_job_id and hasattr(video_provider, "get_task"):
-                            task = self._poll_video_task(video_provider, result.provider_job_id)
-                            output = task.get("output") or {}
-                            segment["task"] = task
-                            segment["preview_url"] = extract_video_url(output) or segment.get("preview_url")
-                            task_status = str(task.get("status") or "requested").lower()
-                            if task_status == "completed":
-                                segment["status"] = "ready"
-                            elif task_status == "failed":
-                                segment["status"] = "failed"
-                            else:
-                                segment["status"] = task_status or "requested"
+                    provider_initial_frame_url = self._provider_accessible_url(continuation_frame_url)
+                    result = video_provider.request_video(
+                        prompt_title=str(segment.get("title") or video.title),
+                        prompt_body=str(segment.get("prompt_body") or video.prompt.body),
+                        market=video.prompt.niche.project.market,
+                        initial_frame_url=provider_initial_frame_url,
+                    )
+                    segment["provider_job_id"] = result.provider_job_id
+                    segment["provider_name"] = result.provider_name
+                    segment["preview_url"] = result.preview_url
+                    segment["storage_path"] = result.storage_path
+                    segment["initial_frame_url"] = provider_initial_frame_url
+                    segment["format_payload"] = dict(result.format_payload)
+                    segment["status"] = "requested"
+                    if result.provider_job_id and hasattr(video_provider, "get_task"):
+                        task = self._poll_video_task(video_provider, result.provider_job_id)
+                        output = task.get("output") or {}
+                        segment["task"] = task
+                        segment["preview_url"] = extract_video_url(output) or segment.get("preview_url")
+                        task_status = str(task.get("status") or "requested").lower()
+                        if task_status == "completed":
+                            segment["status"] = "ready"
+                        elif task_status == "failed":
+                            segment["status"] = "failed"
+                        else:
+                            segment["status"] = task_status or "requested"
 
         any_failed = any(str(item.get("status") or "").lower() == "failed" for item in segments)
         all_ready = all(str(item.get("status") or "").lower() == "ready" and item.get("preview_url") for item in segments)
@@ -456,6 +462,15 @@ class OrchestratorService:
                 self.session.commit()
                 self.session.refresh(video)
         return video
+
+    @staticmethod
+    def _provider_accessible_url(url: str | None) -> str | None:
+        if not url:
+            return None
+        lowered = url.lower()
+        if lowered.startswith("http://") or lowered.startswith("https://"):
+            return url
+        return None
 
     def generate_cover_prompts(self, video: Video) -> dict:
         return self.cover_workflow.generate_cover_prompts(video)

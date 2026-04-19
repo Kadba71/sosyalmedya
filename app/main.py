@@ -2,6 +2,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime
 
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
 
 from app.api.routes import admin, health, internal, oauth, telegram
 from app.config import get_settings
@@ -27,6 +28,7 @@ app.include_router(admin.router, prefix="/api/admin", tags=["admin"])
 app.include_router(internal.router, prefix="/api/internal", tags=["internal"])
 app.include_router(oauth.router, prefix="/api/oauth", tags=["oauth"])
 app.include_router(telegram.router, prefix="/api/telegram", tags=["telegram"])
+app.mount("/media/videos", StaticFiles(directory=settings.storage_path), name="video-media")
 
 
 @app.get("/")

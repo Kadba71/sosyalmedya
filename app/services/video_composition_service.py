@@ -3,6 +3,7 @@ from __future__ import annotations
 import shutil
 import subprocess
 from pathlib import Path
+from urllib.parse import quote
 
 import httpx
 
@@ -135,7 +136,17 @@ class VideoCompositionService:
         completed = subprocess.run(command, capture_output=True, text=True)
         if completed.returncode != 0:
             raise VideoCompositionError(completed.stderr.strip() or "ffmpeg last-frame extraction failed.")
-        return output_path.as_uri()
+        public_url = self._public_asset_url(output_path)
+        return public_url or output_path.as_uri()
+
+    def _public_asset_url(self, asset_path: Path) -> str | None:
+        if not self.settings.public_base_url:
+            return None
+        try:
+            relative_path = asset_path.relative_to(self.settings.storage_path).as_posix()
+        except ValueError:
+            return None
+        return f"{self.settings.public_base_url.rstrip('/')}/media/videos/{quote(relative_path, safe='/')}"
 
     @staticmethod
     def _segment_url(segment: dict) -> str | None:

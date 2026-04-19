@@ -145,7 +145,75 @@ def test_extract_last_frame_writes_png(monkeypatch, tmp_path: Path) -> None:
     assert (tmp_path / "video-1" / "frames" / "segment-1-last-frame.png").exists()
 
 
+def test_extract_last_frame_returns_public_url_when_base_url_exists(monkeypatch, tmp_path: Path) -> None:
+    settings = Settings(secret_key="test-secret", storage_path=tmp_path, public_base_url="https://example.com")
+    service = VideoCompositionService(settings)
+
+    class FakeStream:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def raise_for_status(self) -> None:
+            return None
+
+        def iter_bytes(self):
+            yield b"video-bytes"
+
+    monkeypatch.setattr("app.services.video_composition_service.httpx.stream", lambda *args, **kwargs: FakeStream())
+    monkeypatch.setattr("app.services.video_composition_service.shutil.which", lambda name: "ffmpeg")
+
+    def fake_run(command, capture_output, text):
+        output_path = Path(command[-1])
+        output_path.write_bytes(b"png-bytes")
+        return type("Completed", (), {"returncode": 0, "stderr": ""})()
+
+    monkeypatch.setattr("app.services.video_composition_service.subprocess.run", fake_run)
+
+    frame_url = service.extract_last_frame(video_id=1, segment_index=1, video_url="https://cdn.example.com/seg-1.mp4")
+
+    assert frame_url == "https://example.com/media/videos/video-1/frames/segment-1-last-frame.png"
+
+
 def test_orchestrator_passes_extracted_frame_to_second_segment(monkeypatch) -> None:
+    session = build_session()
+    settings = Settings(secret_key="test-secret", video_provider="dummy")
+    prompt = seed_prompt(session)
+    orchestrator = OrchestratorService(session, settings)
+
+    calls = []
+
+    class FakeProvider:
+        def request_video(self, *, prompt_title, prompt_body, market, initial_frame_url=None, end_frame_url=None):
+            calls.append({"title": prompt_title, "initial_frame_url": initial_frame_url})
+            preview_url = f"https://cdn.example.com/{len(calls)}.mp4"
+            return type(
+                "Result",
+                (),
+                {
+                    "title": prompt_title,
+                    "provider_name": "fake-provider",
+                    "provider_job_id": None,
+                    "preview_url": preview_url,
+                    "storage_path": None,
+                    "format_payload": {},
+                },
+            )()
+
+    monkeypatch.setattr(orchestrator.providers, "video_provider", lambda: FakeProvider())
+    monkeypatch.setattr(orchestrator.video_composition, "extract_last_frame", lambda **kwargs: "https://example.com/frame.png")
+
+    video = orchestrator.request_video(prompt)
+
+    assert len(calls) == 2
+    assert calls[0]["initial_frame_url"] is None
+    assert calls[1]["initial_frame_url"] == "https://example.com/frame.png"
+    assert video.format_payload["segments"][1]["initial_frame_url"] == "https://example.com/frame.png"
+
+
+def test_orchestrator_does_not_send_file_url_to_provider(monkeypatch) -> None:
     session = build_session()
     settings = Settings(secret_key="test-secret", video_provider="dummy")
     prompt = seed_prompt(session)
@@ -176,9 +244,8 @@ def test_orchestrator_passes_extracted_frame_to_second_segment(monkeypatch) -> N
     video = orchestrator.request_video(prompt)
 
     assert len(calls) == 2
-    assert calls[0]["initial_frame_url"] is None
-    assert calls[1]["initial_frame_url"] == "file:///tmp/last-frame.png"
-    assert video.format_payload["segments"][1]["initial_frame_url"] == "file:///tmp/last-frame.png"
+    assert calls[1]["initial_frame_url"] is None
+    assert video.format_payload["segments"][1]["initial_frame_url"] is None
 
 
 def test_orchestrator_polls_until_first_segment_completes(monkeypatch) -> None:
@@ -215,12 +282,12 @@ def test_orchestrator_polls_until_first_segment_completes(monkeypatch) -> None:
             return {"status": "completed", "output": {"video": "https://cdn.example.com/seg-2.mp4"}}
 
     monkeypatch.setattr(orchestrator.providers, "video_provider", lambda: FakeProvider())
-    monkeypatch.setattr(orchestrator.video_composition, "extract_last_frame", lambda **kwargs: "file:///tmp/last-frame.png")
+    monkeypatch.setattr(orchestrator.video_composition, "extract_last_frame", lambda **kwargs: "https://example.com/frame.png")
 
     video = orchestrator.request_video(prompt)
 
     assert len(request_calls) == 2
-    assert request_calls[1]["initial_frame_url"] == "file:///tmp/last-frame.png"
+    assert request_calls[1]["initial_frame_url"] == "https://example.com/frame.png"
     assert task_calls.count("task-1") == 3
     assert video.format_payload["segments"][0]["status"] == "ready"
     assert video.format_payload["segments"][1]["status"] == "ready"
