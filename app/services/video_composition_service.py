@@ -67,7 +67,7 @@ class VideoCompositionService:
             if not url:
                 raise VideoCompositionError(f"Segment {segment.get('segment_index')} does not have a downloadable URL yet.")
             segment_path = target_dir / f"segment-{segment['segment_index']}.mp4"
-            with httpx.stream("GET", url, timeout=self.settings.ollama_timeout_seconds, follow_redirects=True) as response:
+            with httpx.stream("GET", url, timeout=self.settings.llm_timeout_seconds, follow_redirects=True) as response:
                 response.raise_for_status()
                 with segment_path.open("wb") as handle:
                     for chunk in response.iter_bytes():
@@ -111,7 +111,7 @@ class VideoCompositionService:
         target_dir = self.settings.storage_path / f"video-{video_id}" / "frames"
         target_dir.mkdir(parents=True, exist_ok=True)
         source_path = target_dir / f"segment-{segment_index}.mp4"
-        with httpx.stream("GET", video_url, timeout=self.settings.ollama_timeout_seconds, follow_redirects=True) as response:
+        with httpx.stream("GET", video_url, timeout=self.settings.llm_timeout_seconds, follow_redirects=True) as response:
             response.raise_for_status()
             with source_path.open("wb") as handle:
                 for chunk in response.iter_bytes():

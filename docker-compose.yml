@@ -1,31 +1,8 @@
 services:
-  ollama:
-    image: ollama/ollama:latest
-    container_name: sosyal-ollama
-    restart: unless-stopped
-    ports:
-      - "11434:11434"
-    volumes:
-      - ollama-data:/root/.ollama
-      - ./docker/ollama/pull-models.sh:/usr/local/bin/pull-models.sh:ro
-    environment:
-      OLLAMA_HOST: 0.0.0.0:11434
-    entrypoint: ["/bin/sh", "-c"]
-    command: "ollama serve & sleep 5; /usr/local/bin/pull-models.sh; wait"
-    healthcheck:
-      test: ["CMD", "ollama", "list"]
-      interval: 30s
-      timeout: 10s
-      retries: 10
-      start_period: 45s
-
   aider:
     image: paulgauthier/aider-full:latest
     container_name: sosyal-aider
     restart: unless-stopped
-    depends_on:
-      ollama:
-        condition: service_healthy
     working_dir: /workspace
     stdin_open: true
     tty: true
@@ -36,11 +13,11 @@ services:
       - ./docker/aider/worker.py:/usr/local/bin/aider-worker.py:ro
       - ./docker/aider/.aider.conf.yml:/home/aider/.aider.conf.yml:ro
       - ./docker/aider/.aider.model.settings.yml:/home/aider/.aider.model.settings.yml:ro
+    env_file:
+      - .env
     environment:
-      OLLAMA_API_BASE: http://ollama:11434
-      OLLAMA_API_KEY: ollama
-      AIDER_MODEL: ollama_chat/deepseek-r1:32b
-      AIDER_EDITOR_MODEL: ollama_chat/qwen3:32b
+      AIDER_MODEL: openai/gpt-4o-mini
+      AIDER_EDITOR_MODEL: openai/gpt-4o-mini
       AIDER_TASK_MODE: interactive
       AIDER_ANALYTICS: false
       AIDER_AUTO_COMMITS: false
@@ -54,17 +31,11 @@ services:
       dockerfile: Dockerfile
     container_name: sosyal-backend
     restart: unless-stopped
-    depends_on:
-      ollama:
-        condition: service_healthy
     env_file:
       - .env
-    environment:
-      OLLAMA_API_BASE: http://ollama:11434/v1
     ports:
       - "8000:8000"
 
 volumes:
-  ollama-data:
   aider-data:
 

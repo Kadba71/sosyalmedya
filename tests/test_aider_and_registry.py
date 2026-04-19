@@ -47,7 +47,7 @@ def test_aider_task_queue_lifecycle() -> None:
         AiderTaskCreateRequest(
             title="Implement queue",
             instruction="Add queue support",
-            preferred_model="ollama_chat/deepseek-r1:32b",
+            preferred_model="openai/gpt-4o-mini",
             files_in_scope=["app/main.py"],
         ),
     )
@@ -70,7 +70,7 @@ def test_aider_task_queue_lifecycle() -> None:
     assert updated.output_summary == "Done"
 
 
-def test_ollama_trend_provider_keeps_market_signals(monkeypatch) -> None:
+def test_llm_trend_provider_keeps_market_signals(monkeypatch) -> None:
     provider = ProviderRegistry(get_settings(), build_session()).trend_provider()
 
     monkeypatch.setattr(

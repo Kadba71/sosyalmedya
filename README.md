@@ -26,17 +26,17 @@ Telegram uzerinden onayli ilerleyen, 3 agent mantiginda tasarlanmis, Railway uze
 - `ProviderRegistry`: trend, prompt, video icin bos adapter katmani
 - `PublisherRegistry`: sosyal platform publish adapter katmani
 
-## Self-hosted AI Katmani
+## LLM Katmani
 
-Prompt ve arastirma icin tamamen self-hosted acik kaynak yapi eklendi:
+Prompt ve arastirma icin uygulama artik OpenAI-compatible bir LLM endpoint'ine baglanir.
 
-- `Ollama` OpenAI-compatible endpoint: `http://ollama:11434/v1`
-- Arastirma modeli: `deepseek-r1:32b`
-- Prompt modeli: `qwen3:32b`
-- Fallback modeli: `qwen3:32b`
+- Varsayilan endpoint: `https://api.piapi.ai/v1`
+- Arastirma modeli: `gpt-4o`
+- Prompt modeli: `gpt-4o`
+- Fallback modeli: `gpt-4o-mini`
 - Coding agent servisi: `Aider`
 
-Bu katman lokal gelistirme icin zorunlu degildir; harici AI sunucusunda Docker Compose ile calismasi hedeflenmistir.
+Bu katman lokal gelistirme icin zorunlu degildir; Railway veya baska bir cloud ortamindan PiAPI GPT-4o endpoint'ine dogrudan baglanabilir.
 
 ## Kurulum
 
@@ -58,26 +58,23 @@ docker compose up -d
 
 Servisler:
 
-- `ollama`: persistent volume ile model cache saklar ve acilista `qwen3:32b` ile `deepseek-r1:32b` modellerini otomatik ceker.
-- `aider`: Ollama'ya baglanan, repo uzerinde self-hosted coding agent olarak calisir.
+- `aider`: repo uzerinde self-hosted coding agent olarak calisir.
 
 Dosyalar:
 
 - `docker-compose.yml`
-- `docker/ollama/pull-models.sh`
 - `docker/aider/entrypoint.sh`
 - `docker/aider/.aider.conf.yml`
 - `docker/aider/.aider.model.settings.yml`
 
 Notlar:
 
-- Bu stack sunucu odaklidir; model boyutlari nedeniyle dusuk RAM'li makinelerde uygun degildir.
-- `deepseek-r1:32b` ve `qwen3:32b` icin GPU veya yuksek RAM tavsiye edilir.
-- Backend arastirma/prompt provider'lari Ollama'nin OpenAI-compatible endpoint'ine dogrudan baglanir.
+- Bu stack sunucu odaklidir.
+- Backend arastirma/prompt provider'lari PiAPI GPT-4o gibi OpenAI-compatible bir endpoint'e dogrudan baglanir.
 
 ## Web Tabanli Genis Piyasa Arastirmasi
 
-Trend tarama artik yalnizca model prompt'una dayanmiyor. Sistem once kamuya acik web sinyallerini topluyor, sonra Ollama reasoning modeli bu sinyalleri niche seviyesinde yorumluyor.
+Trend tarama artik yalnizca model prompt'una dayanmiyor. Sistem once kamuya acik web sinyallerini topluyor, sonra LLM bu sinyalleri niche seviyesinde yorumluyor.
 
 Kaynaklar:
 
@@ -90,12 +87,12 @@ Kaynaklar:
 Ilgili kod:
 
 - `app/services/web_research_service.py`
-- `app/providers/trend/ollama.py`
+- `app/providers/trend/llm.py`
 
 Calisma mantigi:
 
 1. Web kaynaklarindan baslik ve ozet sinyalleri toplanir.
-2. Bu sinyaller tek JSON blok halinde Ollama arastirma modeline verilir.
+2. Bu sinyaller tek JSON blok halinde LLM arastirma modeline verilir.
 3. Model bunlardan daginik trend kelimeleri degil, secilebilir niche listesi uretir.
 
 Sinirlar:
@@ -115,8 +112,8 @@ Benchmark sonucu `ProviderConfig` icine kaydedilir ve aktifse provider secimi ot
 
 Varsayilan mantik:
 
-- Trend/arastirma icin `deepseek-r1:32b`
-- Prompt uretimi icin `qwen3:32b`
+- Trend/arastirma icin `gpt-4o`
+- Prompt uretimi icin `gpt-4o`
 - Benchmark sonucu daha iyi cikarsa secim otomatik degisir
 
 ## Aider Gorev Kuyrugu
@@ -134,9 +131,9 @@ Bu tasarimla Aider servisi backend'den bagimsiz ama kontrollu sekilde calisir. U
 Pratik uretim topolojisi hibrittir:
 
 - `Railway`: public backend, Telegram webhook, admin API
-- `Harici AI Sunucusu`: Ollama, benchmark, Aider worker
+- `Harici AI Servisi`: PiAPI GPT-4o veya baska bir OpenAI-compatible LLM, benchmark, Aider worker
 
-Bu tercih zorunludur; `deepseek-r1:32b` ve `qwen3:32b` gibi agir modeller Railway uzerinde verimli calismaz.
+Bu tercih pratikte daha saglamdir; backend dogrudan harici LLM endpoint'ine baglanir.
 
 Yine de tam sunucu stack dosyalari korunuyor. Isterseniz backend'i de sonradan bu stack'e alabilirsiniz.
 
@@ -144,7 +141,6 @@ Sunucu odakli tam stack:
 
 - `postgres`: kalici veritabani
 - `backend`: FastAPI uygulamasi
-- `ollama`: self-hosted LLM runtime
 - `aider`: kuyruk tabanli coding agent worker
 - `caddy`: reverse proxy + TLS sonlandirma
 
@@ -166,7 +162,7 @@ Calistirma:
 docker compose -f docker-compose.prod.yml up -d --build
 ```
 
-Bu topolojiyle yayin Railway uzerinden yapilir, AI katmani ise ayri sunucuda kalir. Backend tarafinda yapmaniz gereken temel ayar `OLLAMA_API_BASE` degiskenini harici AI sunucunuza vermektir.
+Bu topolojiyle yayin Railway uzerinden yapilir. Backend tarafinda yapmaniz gereken temel ayar `LLM_API_BASE` degiskenini PiAPI gibi OpenAI-compatible bir servise vermektir.
 
 ## Temel API Akisi
 
@@ -289,17 +285,17 @@ Merge islemi icin sistem `ffmpeg` kullanir. Birlesik dosya local `storage/videos
 
 ## Arastirma ve Prompt Provider
 
-Arastirma ve prompt uretimi artik dummy degil; Ollama uzerinden self-hosted calisabilir.
+Arastirma ve prompt uretimi artik dummy degil; OpenAI-compatible chat completions endpoint'i uzerinden calisir.
 
-- `app/providers/trend/ollama.py`
-- `app/providers/prompt/ollama.py`
-- `app/providers/ollama_client.py`
+- `app/providers/trend/llm.py`
+- `app/providers/prompt/llm.py`
+- `app/providers/llm_client.py`
 
 Varsayilan tercih:
 
-- Trend/arastirma icin `deepseek-r1:32b`
-- Prompt uretimi icin `qwen3:32b`
-- Hata durumunda `qwen3:32b` fallback
+- Trend/arastirma icin `gpt-4o`
+- Prompt uretimi icin `gpt-4o`
+- Hata durumunda `gpt-4o-mini` fallback
 
 ## Gercek Provider Entegrasyonlari
 

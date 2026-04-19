@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.config import Settings
 from app.db.models import Platform, Video
-from app.providers.ollama_client import OllamaChatClient
+from app.providers.llm_client import LLMChatClient
 
 
 @dataclass(frozen=True, slots=True)
@@ -34,7 +34,7 @@ class CoverWorkflowService:
         self.settings = settings
 
     def generate_cover_prompts(self, video: Video) -> dict:
-        prompts = self._ollama_cover_prompts(video) or self._fallback_cover_prompts(video)
+        prompts = self._llm_cover_prompts(video) or self._fallback_cover_prompts(video)
         covers_payload = self._covers_payload(video)
         covers_payload["prompt_status"] = "draft"
         covers_payload["prompts"] = prompts
@@ -109,13 +109,13 @@ class CoverWorkflowService:
             )
         return report
 
-    def _ollama_cover_prompts(self, video: Video) -> dict[str, dict] | None:
-        if self.settings.prompt_provider.lower() != "ollama":
+    def _llm_cover_prompts(self, video: Video) -> dict[str, dict] | None:
+        if self.settings.prompt_provider.lower() not in {"llm", "piapi", "ollama"}:
             return None
-        client = OllamaChatClient(
-            base_url=self.settings.ollama_api_base,
-            api_key=self.settings.ollama_api_key,
-            timeout_seconds=self.settings.ollama_timeout_seconds,
+        client = LLMChatClient(
+            base_url=self.settings.llm_api_base,
+            api_key=self.settings.llm_api_key,
+            timeout_seconds=self.settings.llm_timeout_seconds,
         )
         system_prompt = "You are an elite social cover-image prompt engineer. Return only valid JSON with a top-level key named covers."
         user_prompt = (
@@ -127,7 +127,7 @@ class CoverWorkflowService:
             "Avoid embedded long text in the image itself."
         )
         try:
-            payload = client.complete_json(model=self.settings.ollama_prompt_model, system_prompt=system_prompt, user_prompt=user_prompt)
+            payload = client.complete_json(model=self.settings.llm_prompt_model, system_prompt=system_prompt, user_prompt=user_prompt)
         except Exception:
             return None
         results: dict[str, dict] = {}

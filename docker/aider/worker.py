@@ -10,8 +10,8 @@ import urllib.request
 
 BACKEND_URL = os.environ.get("AIDER_BACKEND_URL", "http://backend:8000")
 INTERNAL_TOKEN = os.environ.get("INTERNAL_AGENT_TOKEN", "change-internal-agent-token")
-DEFAULT_MODEL = os.environ.get("AIDER_MODEL", "ollama_chat/deepseek-r1:32b")
-EDITOR_MODEL = os.environ.get("AIDER_EDITOR_MODEL", "ollama_chat/qwen3:32b")
+DEFAULT_MODEL = os.environ.get("AIDER_MODEL", "openai/gpt-4o-mini")
+EDITOR_MODEL = os.environ.get("AIDER_EDITOR_MODEL", "openai/gpt-4o-mini")
 
 
 def request(method: str, path: str, payload: dict | None = None) -> dict:

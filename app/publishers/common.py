@@ -56,7 +56,7 @@ class PublishHttpClient:
 
     def download_media_bytes(self, url: str) -> bytes:
         if str(url).startswith(("http://", "https://")):
-            response = httpx.get(url, timeout=self.settings.ollama_timeout_seconds, follow_redirects=True)
+            response = httpx.get(url, timeout=self.settings.llm_timeout_seconds, follow_redirects=True)
             response.raise_for_status()
             return response.content
         path = Path(str(url).replace("file://", ""))
@@ -83,7 +83,7 @@ class PublishHttpClient:
             json=json_payload,
             data=form_payload,
             headers=request_headers,
-            timeout=self.settings.ollama_timeout_seconds,
+            timeout=self.settings.llm_timeout_seconds,
             follow_redirects=True,
         )
         response.raise_for_status()
@@ -108,7 +108,7 @@ class PublishHttpClient:
             json=json_payload,
             content=content,
             headers=request_headers,
-            timeout=self.settings.ollama_timeout_seconds,
+            timeout=self.settings.llm_timeout_seconds,
             follow_redirects=True,
         )
         response.raise_for_status()

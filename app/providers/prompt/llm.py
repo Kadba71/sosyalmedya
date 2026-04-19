@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 from app.providers.base import PromptProvider, PromptResult
-from app.providers.ollama_client import OllamaChatClient
+from app.providers.llm_client import LLMChatClient
 
 
-class OllamaPromptProvider(PromptProvider):
-    def __init__(self, *, client: OllamaChatClient, model: str, fallback_model: str) -> None:
+class LLMPromptProvider(PromptProvider):
+    def __init__(self, *, client: LLMChatClient, model: str, fallback_model: str) -> None:
         self.client = client
         self.model = model
         self.fallback_model = fallback_model

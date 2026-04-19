@@ -7,8 +7,8 @@ def test_production_config_rejects_placeholder_secrets() -> None:
         secret_key="change-me",
         app_encryption_key="change-me-too",
         internal_agent_token="change-internal-agent-token",
-        trends_provider="ollama",
-        prompt_provider="ollama",
+        trends_provider="llm",
+        prompt_provider="llm",
         video_provider="kling",
     )
 
@@ -27,7 +27,7 @@ def test_production_config_rejects_dummy_providers() -> None:
         app_encryption_key="secure-encryption-key",
         internal_agent_token="secure-internal-token",
         trends_provider="dummy",
-        prompt_provider="ollama",
+        prompt_provider="llm",
         video_provider="kling",
     )
 

@@ -4,17 +4,17 @@ from sqlalchemy.orm import Session
 
 from app.config import Settings
 from app.db.models import BenchmarkRun, BenchmarkRunStatus, BenchmarkScope, ProviderConfig
-from app.providers.ollama_client import OllamaChatClient
+from app.providers.llm_client import LLMChatClient
 
 
 class BenchmarkService:
     def __init__(self, session: Session, settings: Settings) -> None:
         self.session = session
         self.settings = settings
-        self.client = OllamaChatClient(
-            base_url=settings.ollama_api_base,
-            api_key=settings.ollama_api_key,
-            timeout_seconds=settings.ollama_timeout_seconds,
+        self.client = LLMChatClient(
+            base_url=settings.llm_api_base,
+            api_key=settings.llm_api_key,
+            timeout_seconds=settings.llm_timeout_seconds,
         )
 
     def run(self, *, scope: BenchmarkScope, market: str, sample_count: int = 2) -> BenchmarkRun:
@@ -22,7 +22,7 @@ class BenchmarkService:
         self.session.add(benchmark)
         self.session.flush()
 
-        candidates = [self.settings.ollama_research_model, self.settings.ollama_prompt_model]
+        candidates = [self.settings.llm_research_model, self.settings.llm_prompt_model]
         scores: dict[str, dict] = {}
 
         try:

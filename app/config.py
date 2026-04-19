@@ -1,7 +1,7 @@
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import Field
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -26,13 +26,13 @@ class Settings(BaseSettings):
     trends_provider: str = "dummy"
     prompt_provider: str = "dummy"
     video_provider: str = "dummy"
-    ollama_api_base: str = "http://ollama:11434/v1"
-    ollama_api_key: str = "ollama"
-    ollama_research_model: str = "deepseek-r1:32b"
-    ollama_prompt_model: str = "qwen3:32b"
-    ollama_fallback_model: str = "qwen3:32b"
-    ollama_timeout_seconds: int = 180
-    ollama_auto_benchmark: bool = True
+    llm_api_base: str = Field(default="https://api.piapi.ai/v1", validation_alias=AliasChoices("LLM_API_BASE", "OLLAMA_API_BASE"))
+    llm_api_key: str = Field(default="", validation_alias=AliasChoices("LLM_API_KEY", "OLLAMA_API_KEY"))
+    llm_research_model: str = Field(default="gpt-4o", validation_alias=AliasChoices("LLM_RESEARCH_MODEL", "OLLAMA_RESEARCH_MODEL"))
+    llm_prompt_model: str = Field(default="gpt-4o", validation_alias=AliasChoices("LLM_PROMPT_MODEL", "OLLAMA_PROMPT_MODEL"))
+    llm_fallback_model: str = Field(default="gpt-4o-mini", validation_alias=AliasChoices("LLM_FALLBACK_MODEL", "OLLAMA_FALLBACK_MODEL"))
+    llm_timeout_seconds: int = Field(default=180, validation_alias=AliasChoices("LLM_TIMEOUT_SECONDS", "OLLAMA_TIMEOUT_SECONDS"))
+    llm_auto_benchmark: bool = Field(default=True, validation_alias=AliasChoices("LLM_AUTO_BENCHMARK", "OLLAMA_AUTO_BENCHMARK"))
     internal_agent_token: str = "change-internal-agent-token"
     research_fetch_timeout_seconds: int = 20
     research_youtube_blog_url: str = "https://blog.youtube/"
