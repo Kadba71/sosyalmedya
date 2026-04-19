@@ -47,8 +47,10 @@ class TelegramBotService:
                     lines.append("Bulunan nisler:")
                     lines.extend(f"- {niche.id}: {niche.name} | skor {niche.trend_score}" for niche in niches)
                     lines.append("")
-                    lines.append("Sonraki adim: /select_niche <niche_id> ile bir nis sabitle. Sonra /topics veya /prompts komutlarini idsiz kullanabilirsin.")
+                    lines.append("Sonraki adim: /select_niche <niche_id> ile bir nis sabitle veya /manual_niche <nis_adi> ile kendi nisini olustur. Sonra /topics veya /prompts komutlarini idsiz kullanabilirsin.")
                 return {"message": "\n".join(lines), "niches": [niche.name for niche in niches], "niche_ids": [niche.id for niche in niches]}
+            if text.startswith("/manual_niche"):
+                return self._manual_niche_command(project, text)
             if text.startswith("/select_niche"):
                 return self._set_selected_niche_command(text, command="/select_niche", prefix="Nis secildi ve sabitlendi.")
             if text.startswith("/change_niche"):
@@ -319,6 +321,27 @@ class TelegramBotService:
         niche = self.session.get(Niche, niche_id)
         if niche is None:
             return {"message": "Niche bulunamadi."}
+        return self._persist_selected_niche(niche, prefix=prefix)
+
+    def _manual_niche_command(self, project, text: str) -> dict:
+        niche_name = self._parse_text_argument(text, command="/manual_niche")
+        niche = Niche(
+            project_id=project.id,
+            name=niche_name,
+            description=f"Manuel secilen nis: {niche_name}",
+            source="manual",
+            trend_score=100,
+            context_payload={"manual": True, "manual_entry": niche_name},
+        )
+        self.session.add(niche)
+        self.session.commit()
+        self.session.refresh(niche)
+        return self._persist_selected_niche(
+            niche,
+            prefix="Manuel nis olusturuldu ve aktif nis olarak sabitlendi.",
+        )
+
+    def _persist_selected_niche(self, niche: Niche, *, prefix: str) -> dict:
         state = self._telegram_state_config(create=True)
         state.enabled = True
         state.config_payload = {
@@ -798,6 +821,13 @@ class TelegramBotService:
         return int(parts[1])
 
     @staticmethod
+    def _parse_text_argument(text: str, *, command: str) -> str:
+        parts = text.split(maxsplit=1)
+        if len(parts) != 2 or not parts[1].strip():
+            raise ValueError(f"Kullanim: {command} <nis_adi>")
+        return parts[1].strip()
+
+    @staticmethod
     def _parse_optional_single_int_argument(text: str, *, command: str) -> int | None:
         parts = text.split(maxsplit=1)
         if len(parts) == 1:
@@ -852,6 +882,7 @@ class TelegramBotService:
             "Komut Rehberi:\n\n"
             "/help\nBotta kullanabileceginiz tum komutlari ve amaclarini gosterir.\n\n"
             "/scan\nGunluk web tabanli trend niche taramasini calistirir.\n\n"
+            "/manual_niche <nis_adi>\nListede olmayan kendi niche'ini olusturur ve aktif niche olarak sabitler.\n\n"
             "/select_niche <niche_id>\nBir niche'i aktif niche olarak sabitler.\n\n"
             "/change_niche <niche_id>\nAktif niche'i degistirir.\n\n"
             "/current_niche\nSu an sabitlenen niche'i gosterir.\n\n"

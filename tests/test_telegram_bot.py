@@ -198,7 +198,7 @@ def test_scan_command_lists_discovered_niches(monkeypatch) -> None:
     assert "Bulunan nisler:" in result["message"]
     assert "- 10: Kripto Ozeti | skor 88" in result["message"]
     assert "- 11: Teknoloji Firsatlari | skor 81" in result["message"]
-    assert "/select_niche <niche_id>" in result["message"]
+    assert "/manual_niche <nis_adi>" in result["message"]
 
 
 def test_topics_command_lists_researched_topics_with_buttons(monkeypatch) -> None:
@@ -361,6 +361,55 @@ def test_change_niche_updates_current_niche() -> None:
 
     assert "Aktif nis degistirildi." in change_result["message"]
     assert f"Aktif nis: {niche_two.id} - Ikinci Nis" in current_result["message"]
+
+
+def test_manual_niche_creates_and_selects_custom_niche() -> None:
+    session = build_session()
+    settings = Settings(secret_key="test-secret")
+    service = TelegramBotService(session, settings)
+
+    service.handle_update(
+        TelegramWebhookPayload(
+            message={
+                "text": "/start",
+                "chat": {"id": 111},
+                "from": {"id": 222, "first_name": "Owner", "username": "owner"},
+            }
+        )
+    )
+
+    result = service.handle_update(
+        TelegramWebhookPayload(
+            message={
+                "text": "/manual_niche benim istedigim nis",
+                "chat": {"id": 111},
+                "from": {"id": 222, "first_name": "Owner", "username": "owner"},
+            }
+        )
+    )
+
+    niche = session.query(Niche).filter(Niche.source == "manual").one()
+    assert niche.name == "benim istedigim nis"
+    assert "Manuel nis olusturuldu" in result["message"]
+    assert f"Aktif nis: {niche.id} - benim istedigim nis" in result["message"]
+
+
+def test_manual_niche_requires_text() -> None:
+    session = build_session()
+    settings = Settings(secret_key="test-secret")
+    service = TelegramBotService(session, settings)
+
+    result = service.handle_update(
+        TelegramWebhookPayload(
+            message={
+                "text": "/manual_niche",
+                "chat": {"id": 111},
+                "from": {"id": 222, "first_name": "Owner", "username": "owner"},
+            }
+        )
+    )
+
+    assert result["message"] == "Kullanim: /manual_niche <nis_adi>"
 
 
 def test_topic_prompt_command_generates_topic_specific_prompt(monkeypatch) -> None:
