@@ -227,6 +227,9 @@ class OrchestratorService:
                     prompt_title=segment_request["title"],
                     prompt_body=segment_request["body"],
                     market=prompt.niche.project.market,
+                    duration_seconds=int(segment_request["duration_seconds"]),
+                    aspect_ratio=str(segment_request["aspect_ratio"]),
+                    enable_audio=bool(prompt.metadata_payload.get("enable_audio", True)),
                     initial_frame_url=current_initial_frame_url,
                 )
                 provider_name = result.provider_name
@@ -401,6 +404,9 @@ class OrchestratorService:
                         prompt_title=str(segment.get("title") or video.title),
                         prompt_body=str(segment.get("prompt_body") or video.prompt.body),
                         market=video.prompt.niche.project.market,
+                        duration_seconds=int(segment.get("duration_seconds") or video.format_payload.get("segment_duration_seconds") or self.settings.video_segment_duration_seconds),
+                        aspect_ratio=str(segment.get("aspect_ratio") or video.format_payload.get("aspect_ratio") or self.settings.video_target_aspect_ratio),
+                        enable_audio=bool(video.prompt.metadata_payload.get("enable_audio", True)),
                         initial_frame_url=provider_initial_frame_url,
                     )
                     segment["provider_job_id"] = result.provider_job_id

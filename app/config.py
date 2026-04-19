@@ -46,9 +46,9 @@ class Settings(BaseSettings):
     kling_model: str = "kling"
     kling_version: str = "3.0"
     kling_default_mode: str = "std"
-    kling_default_duration: int = 5
+    kling_default_duration: int = 10
     kling_default_aspect_ratio: str = "9:16"
-    kling_enable_audio: bool = False
+    kling_enable_audio: bool = True
     video_total_duration_seconds: int = 20
     video_segment_duration_seconds: int = 10
     video_segment_count: int = 2

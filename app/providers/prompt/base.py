@@ -11,6 +11,7 @@ class DummyPromptProvider(PromptProvider):
                     body=(
                         f"{market} pazari icin {niche_name} konusunda 9:16 short formatinda toplam 20 saniyelik dikey video senaryosu uret. "
                         f"Hikaye 2 adet 10 saniyelik bolumden olussun. 2. bolum, 1. bolumun son karesindeki ana kompozisyonu koruyarak devam etsin. "
+                        f"Video mutlaka sesli olsun; dogal ortam sesiyle birlikte Turkce hikaye anlatici voice-over hissi versin. "
                         f"Net acilis, hizli akis ve CTA ile bitis zorunlu. Baglam: {niche_description}."
                     ),
                     target_platforms=["youtube", "instagram", "tiktok", "facebook"],
@@ -23,6 +24,8 @@ class DummyPromptProvider(PromptProvider):
                         "total_duration_seconds": 20,
                         "segment_count": 2,
                         "segment_duration_seconds": 10,
+                        "enable_audio": True,
+                        "narration_style": "turkish_storytelling_voiceover",
                         "continuation_rule": "segment_2_continues_from_segment_1_last_frame",
                     },
                 )
@@ -53,6 +56,8 @@ class DummyPromptProvider(PromptProvider):
                 "total_duration_seconds": 20,
                 "segment_count": 2,
                 "segment_duration_seconds": 10,
+                "enable_audio": True,
+                "narration_style": "turkish_storytelling_voiceover",
                 "continuation_rule": "segment_2_continues_from_segment_1_last_frame",
             },
         )

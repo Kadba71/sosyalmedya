@@ -75,6 +75,9 @@ class VideoProvider(Protocol):
         prompt_title: str,
         prompt_body: str,
         market: str,
+        duration_seconds: int | None = None,
+        aspect_ratio: str | None = None,
+        enable_audio: bool | None = None,
         initial_frame_url: str | None = None,
         end_frame_url: str | None = None,
     ) -> VideoRequestResult:

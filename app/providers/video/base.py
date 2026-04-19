@@ -36,6 +36,9 @@ class DummyVideoProvider(VideoProvider):
         prompt_title: str,
         prompt_body: str,
         market: str,
+        duration_seconds: int | None = None,
+        aspect_ratio: str | None = None,
+        enable_audio: bool | None = None,
         initial_frame_url: str | None = None,
         end_frame_url: str | None = None,
     ) -> VideoRequestResult:
@@ -48,6 +51,9 @@ class DummyVideoProvider(VideoProvider):
             format_payload={
                 "state": "provider_pending",
                 "market": market,
+                "duration_seconds": duration_seconds,
+                "aspect_ratio": aspect_ratio,
+                "enable_audio": enable_audio,
                 "prompt_excerpt": prompt_body[:140],
                 "initial_frame_url": initial_frame_url,
                 "end_frame_url": end_frame_url,
@@ -73,9 +79,15 @@ class PiAPIKlingVideoProvider(VideoProvider):
         prompt_title: str,
         prompt_body: str,
         market: str,
+        duration_seconds: int | None = None,
+        aspect_ratio: str | None = None,
+        enable_audio: bool | None = None,
         initial_frame_url: str | None = None,
         end_frame_url: str | None = None,
     ) -> VideoRequestResult:
+        resolved_duration = duration_seconds or self.duration
+        resolved_aspect_ratio = aspect_ratio or self.aspect_ratio
+        resolved_enable_audio = self.enable_audio if enable_audio is None else enable_audio
         payload = {
             "model": self.model,
             "task_type": "video_generation",
@@ -83,9 +95,9 @@ class PiAPIKlingVideoProvider(VideoProvider):
                 "prompt": prompt_body,
                 "version": self.version,
                 "mode": self.mode,
-                "duration": self.duration,
-                "aspect_ratio": self.aspect_ratio,
-                "enable_audio": self.enable_audio,
+                "duration": resolved_duration,
+                "aspect_ratio": resolved_aspect_ratio,
+                "enable_audio": resolved_enable_audio,
             },
             "config": {
                 "service_mode": self.service_mode,
@@ -119,6 +131,9 @@ class PiAPIKlingVideoProvider(VideoProvider):
                 "task_type": data.get("task_type"),
                 "provider": "piapi",
                 "market": market,
+                "duration_seconds": resolved_duration,
+                "aspect_ratio": resolved_aspect_ratio,
+                "enable_audio": resolved_enable_audio,
                 "initial_frame_url": initial_frame_url,
                 "end_frame_url": end_frame_url,
                 "input": data.get("input") or payload["input"],

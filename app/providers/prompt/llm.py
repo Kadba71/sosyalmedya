@@ -23,6 +23,7 @@ class LLMPromptProvider(PromptProvider):
             "Each prompt must be distinct, production-ready, and optimized for automation. "
             "Every prompt must describe a 9:16 vertical short with a total runtime of 20 seconds split into exactly 2 scenes of 10 seconds each. "
             "Scene 2 must continue from the final visual composition of scene 1. "
+            "Each prompt body must explicitly require Turkish spoken narration, story-like delivery, and meaningful synced audio, not silent footage. "
             "For each item include: title, body, target_platforms, tone, rank, hook, cta, visual_style. "
             "Target platforms should be arrays chosen from youtube, instagram, tiktok, facebook."
         )
@@ -53,6 +54,8 @@ class LLMPromptProvider(PromptProvider):
                         "total_duration_seconds": 20,
                         "segment_count": 2,
                         "segment_duration_seconds": 10,
+                        "enable_audio": True,
+                        "narration_style": "turkish_storytelling_voiceover",
                         "continuation_rule": "segment_2_continues_from_segment_1_last_frame",
                     },
                 )
@@ -79,6 +82,7 @@ class LLMPromptProvider(PromptProvider):
             f"User revision instruction: {instruction}. "
             "The revised prompt must remain a 9:16 vertical short with a total runtime of 20 seconds split into exactly 2 scenes of 10 seconds each. "
             "Scene 2 must continue from the final visual composition of scene 1. "
+            "The revised body must explicitly require Turkish spoken narration, story-like delivery, and audible sound design. "
             "Return one revised prompt with: title, body, target_platforms, tone, rank, hook, cta, visual_style."
         )
         try:
@@ -106,6 +110,8 @@ class LLMPromptProvider(PromptProvider):
                 "total_duration_seconds": 20,
                 "segment_count": 2,
                 "segment_duration_seconds": 10,
+                "enable_audio": True,
+                "narration_style": "turkish_storytelling_voiceover",
                 "continuation_rule": "segment_2_continues_from_segment_1_last_frame",
             },
         )

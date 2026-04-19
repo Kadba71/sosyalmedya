@@ -186,8 +186,8 @@ def test_orchestrator_passes_extracted_frame_to_second_segment(monkeypatch) -> N
     calls = []
 
     class FakeProvider:
-        def request_video(self, *, prompt_title, prompt_body, market, initial_frame_url=None, end_frame_url=None):
-            calls.append({"title": prompt_title, "initial_frame_url": initial_frame_url})
+        def request_video(self, *, prompt_title, prompt_body, market, duration_seconds=None, aspect_ratio=None, enable_audio=None, initial_frame_url=None, end_frame_url=None):
+            calls.append({"title": prompt_title, "initial_frame_url": initial_frame_url, "duration_seconds": duration_seconds, "aspect_ratio": aspect_ratio, "enable_audio": enable_audio})
             preview_url = f"https://cdn.example.com/{len(calls)}.mp4"
             return type(
                 "Result",
@@ -210,6 +210,9 @@ def test_orchestrator_passes_extracted_frame_to_second_segment(monkeypatch) -> N
     assert len(calls) == 2
     assert calls[0]["initial_frame_url"] is None
     assert calls[1]["initial_frame_url"] == "https://example.com/frame.png"
+    assert calls[0]["duration_seconds"] == 10
+    assert calls[1]["duration_seconds"] == 10
+    assert calls[0]["enable_audio"] is True
     assert video.format_payload["segments"][1]["initial_frame_url"] == "https://example.com/frame.png"
 
 
@@ -222,8 +225,8 @@ def test_orchestrator_does_not_send_file_url_to_provider(monkeypatch) -> None:
     calls = []
 
     class FakeProvider:
-        def request_video(self, *, prompt_title, prompt_body, market, initial_frame_url=None, end_frame_url=None):
-            calls.append({"title": prompt_title, "initial_frame_url": initial_frame_url})
+        def request_video(self, *, prompt_title, prompt_body, market, duration_seconds=None, aspect_ratio=None, enable_audio=None, initial_frame_url=None, end_frame_url=None):
+            calls.append({"title": prompt_title, "initial_frame_url": initial_frame_url, "duration_seconds": duration_seconds, "aspect_ratio": aspect_ratio, "enable_audio": enable_audio})
             preview_url = f"https://cdn.example.com/{len(calls)}.mp4"
             return type(
                 "Result",
@@ -245,6 +248,8 @@ def test_orchestrator_does_not_send_file_url_to_provider(monkeypatch) -> None:
 
     assert len(calls) == 2
     assert calls[1]["initial_frame_url"] is None
+    assert calls[1]["duration_seconds"] == 10
+    assert calls[1]["enable_audio"] is True
     assert video.format_payload["segments"][1]["initial_frame_url"] is None
 
 
@@ -258,8 +263,8 @@ def test_orchestrator_polls_until_first_segment_completes(monkeypatch) -> None:
     task_calls = []
 
     class FakeProvider:
-        def request_video(self, *, prompt_title, prompt_body, market, initial_frame_url=None, end_frame_url=None):
-            request_calls.append({"title": prompt_title, "initial_frame_url": initial_frame_url})
+        def request_video(self, *, prompt_title, prompt_body, market, duration_seconds=None, aspect_ratio=None, enable_audio=None, initial_frame_url=None, end_frame_url=None):
+            request_calls.append({"title": prompt_title, "initial_frame_url": initial_frame_url, "duration_seconds": duration_seconds, "aspect_ratio": aspect_ratio, "enable_audio": enable_audio})
             return type(
                 "Result",
                 (),
@@ -288,6 +293,9 @@ def test_orchestrator_polls_until_first_segment_completes(monkeypatch) -> None:
 
     assert len(request_calls) == 2
     assert request_calls[1]["initial_frame_url"] == "https://example.com/frame.png"
+    assert request_calls[0]["duration_seconds"] == 10
+    assert request_calls[1]["duration_seconds"] == 10
+    assert request_calls[0]["enable_audio"] is True
     assert task_calls.count("task-1") == 3
     assert video.format_payload["segments"][0]["status"] == "ready"
     assert video.format_payload["segments"][1]["status"] == "ready"
@@ -302,8 +310,8 @@ def test_orchestrator_blocks_second_segment_when_first_never_ready(monkeypatch) 
     request_calls = []
 
     class FakeProvider:
-        def request_video(self, *, prompt_title, prompt_body, market, initial_frame_url=None, end_frame_url=None):
-            request_calls.append({"title": prompt_title, "initial_frame_url": initial_frame_url})
+        def request_video(self, *, prompt_title, prompt_body, market, duration_seconds=None, aspect_ratio=None, enable_audio=None, initial_frame_url=None, end_frame_url=None):
+            request_calls.append({"title": prompt_title, "initial_frame_url": initial_frame_url, "duration_seconds": duration_seconds, "aspect_ratio": aspect_ratio, "enable_audio": enable_audio})
             return type(
                 "Result",
                 (),
@@ -363,10 +371,14 @@ def test_kling_provider_sends_image_url(monkeypatch) -> None:
         prompt_title="Segment 2",
         prompt_body="Continue the story",
         market="tr-TR",
+        duration_seconds=10,
+        enable_audio=True,
         initial_frame_url="file:///tmp/frame.png",
     )
 
     assert payloads[0]["input"]["image_url"] == "file:///tmp/frame.png"
+    assert payloads[0]["input"]["duration"] == 10
+    assert payloads[0]["input"]["enable_audio"] is True
 
 
 def test_extract_video_url_supports_kling_three_nested_output() -> None:
@@ -421,7 +433,7 @@ def test_orchestrator_refresh_video_reads_kling_three_nested_output(monkeypatch)
                 },
             }
 
-        def request_video(self, *, prompt_title, prompt_body, market, initial_frame_url=None, end_frame_url=None):
+        def request_video(self, *, prompt_title, prompt_body, market, duration_seconds=None, aspect_ratio=None, enable_audio=None, initial_frame_url=None, end_frame_url=None):
             return type(
                 "Result",
                 (),
@@ -436,7 +448,7 @@ def test_orchestrator_refresh_video_reads_kling_three_nested_output(monkeypatch)
             )()
 
     class InitialProvider:
-        def request_video(self, *, prompt_title, prompt_body, market, initial_frame_url=None, end_frame_url=None):
+        def request_video(self, *, prompt_title, prompt_body, market, duration_seconds=None, aspect_ratio=None, enable_audio=None, initial_frame_url=None, end_frame_url=None):
             return type(
                 "Result",
                 (),
@@ -455,7 +467,7 @@ def test_orchestrator_refresh_video_reads_kling_three_nested_output(monkeypatch)
 
     orchestrator = OrchestratorService(session, settings)
     monkeypatch.setattr(orchestrator.providers, "video_provider", lambda: InitialProvider())
-    monkeypatch.setattr(orchestrator.video_composition, "extract_last_frame", lambda **kwargs: "file:///tmp/last-frame.png")
+    monkeypatch.setattr(orchestrator.video_composition, "extract_last_frame", lambda **kwargs: "https://example.com/frame.png")
     video = orchestrator.request_video(prompt)
 
     monkeypatch.setattr(orchestrator.providers, "video_provider", lambda: FakeProvider())

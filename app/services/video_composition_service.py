@@ -41,6 +41,7 @@ class VideoCompositionService:
                         f"Create segment {index} of {segment_count} for a vertical short. "
                         f"Total video target is {segment_count * segment_duration_seconds} seconds, but this segment must be exactly {segment_duration_seconds} seconds. "
                         f"Aspect ratio must be {aspect_ratio}. "
+                        "The segment must include audible sound and natural Turkish story narration that advances the plot, not silent visuals. "
                         f"Base creative brief: {prompt_body}\n\n"
                         f"Segment-specific continuity instruction: {continuation_rule}"
                     ),
@@ -90,9 +91,10 @@ class VideoCompositionService:
             str(concat_file),
             "-c:v",
             "libx264",
+            "-c:a",
+            "aac",
             "-pix_fmt",
             "yuv420p",
-            "-an",
             str(output_path),
         ]
         completed = subprocess.run(command, capture_output=True, text=True)
