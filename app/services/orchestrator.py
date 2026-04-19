@@ -438,6 +438,22 @@ class OrchestratorService:
         self.session.add(video)
         self.session.commit()
         self.session.refresh(video)
+        merge_payload = video.format_payload.get("merge") or {}
+        if video.status == VideoStatus.READY and merge_payload.get("required") and merge_payload.get("status") != "completed" and not video.storage_path:
+            try:
+                video = self.merge_video_segments(video)
+            except Exception as exc:
+                video.format_payload = {
+                    **video.format_payload,
+                    "merge": {
+                        **merge_payload,
+                        "status": "failed",
+                        "error": str(exc),
+                    },
+                }
+                self.session.add(video)
+                self.session.commit()
+                self.session.refresh(video)
         return video
 
     def generate_cover_prompts(self, video: Video) -> dict:

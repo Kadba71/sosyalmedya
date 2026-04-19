@@ -107,6 +107,51 @@ def test_send_reply_uses_send_photo_when_photo_url_exists(monkeypatch) -> None:
     assert sent["json"]["photo"] == "https://cdn.example.com/cover.png"
 
 
+def test_send_reply_uses_send_video_when_video_url_exists(monkeypatch) -> None:
+    session = build_session()
+    settings = Settings(secret_key="test-secret", telegram_bot_token="bot-token")
+    service = TelegramBotService(session, settings)
+    sent = {}
+
+    def fake_post(url, json=None, timeout=None, data=None, files=None):
+        sent["url"] = url
+        sent["json"] = json
+        sent["data"] = data
+        sent["files"] = files
+
+    monkeypatch.setattr("app.services.telegram_bot.httpx.post", fake_post)
+
+    payload = TelegramWebhookPayload(message={"text": "/start", "chat": {"id": 555}, "from": {"id": 222, "first_name": "Owner"}})
+    service.send_reply(payload, {"message": "Video hazir", "video_url": "https://cdn.example.com/video.mp4"})
+
+    assert sent["url"] == "https://api.telegram.org/botbot-token/sendVideo"
+    assert sent["json"]["video"] == "https://cdn.example.com/video.mp4"
+
+
+def test_send_reply_uploads_local_video_when_video_path_exists(tmp_path, monkeypatch) -> None:
+    session = build_session()
+    settings = Settings(secret_key="test-secret", telegram_bot_token="bot-token")
+    service = TelegramBotService(session, settings)
+    sent = {}
+    video_file = tmp_path / "merged.mp4"
+    video_file.write_bytes(b"fake-video")
+
+    def fake_post(url, json=None, timeout=None, data=None, files=None):
+        sent["url"] = url
+        sent["json"] = json
+        sent["data"] = data
+        sent["files"] = files
+
+    monkeypatch.setattr("app.services.telegram_bot.httpx.post", fake_post)
+
+    payload = TelegramWebhookPayload(message={"text": "/start", "chat": {"id": 555}, "from": {"id": 222, "first_name": "Owner"}})
+    service.send_reply(payload, {"message": "Birlesik video hazir", "video_path": str(video_file)})
+
+    assert sent["url"] == "https://api.telegram.org/botbot-token/sendVideo"
+    assert sent["data"]["caption"] == "Birlesik video hazir"
+    assert sent["files"]["video"][0] == "merged.mp4"
+
+
 def test_send_reply_supports_inline_keyboard_and_callback_answer(monkeypatch) -> None:
     session = build_session()
     settings = Settings(secret_key="test-secret", telegram_bot_token="bot-token")
@@ -1311,6 +1356,7 @@ def test_refresh_video_command_reports_updated_video(monkeypatch) -> None:
 
     assert "Video durumu yenilendi." in result["message"]
     assert "https://cdn.example.com/video.mp4" in result["message"]
+    assert result["video_url"] == "https://cdn.example.com/video.mp4"
 
 
 def test_video_card_mentions_segment_plan() -> None:

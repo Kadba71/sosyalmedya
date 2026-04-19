@@ -1,8 +1,14 @@
+import json
+import threading
+import time
+from pathlib import Path
+
 import httpx
 from sqlalchemy.orm import Session
 
-from app.config import Settings
+from app.config import Settings, get_settings
 from app.db.models import ApprovalAction, ApprovalTarget, EditRequest, Niche, Platform, Prompt, PromptStatus, ProviderConfig, SocialAccount, User, Video, VideoStatus
+from app.db.session import SessionLocal
 from app.schemas.api import TelegramWebhookPayload
 from app.services.account_validation_service import AccountValidationService
 from app.services.approval_service import ApprovalService
@@ -15,6 +21,9 @@ from app.utils.security import TokenCipher
 
 
 class TelegramBotService:
+    _tracker_lock = threading.Lock()
+    _active_video_trackers: set[int] = set()
+
     def __init__(self, session: Session, settings: Settings) -> None:
         self.session = session
         self.settings = settings
@@ -114,19 +123,24 @@ class TelegramBotService:
 
     def send_reply(self, payload: TelegramWebhookPayload, result: dict) -> None:
         chat_id = self._extract_chat_id(payload)
-        message = result.get("message")
         if not self.settings.telegram_bot_token:
             return
         callback_query = payload.callback_query or {}
         callback_id = callback_query.get("id")
         if callback_id:
-            callback_text = str(result.get("callback_message") or message or "Islem tamamlandi.")[:200]
+            callback_text = str(result.get("callback_message") or result.get("message") or "Islem tamamlandi.")[:200]
             httpx.post(
                 f"https://api.telegram.org/bot{self.settings.telegram_bot_token}/answerCallbackQuery",
                 json={"callback_query_id": callback_id, "text": callback_text},
                 timeout=30,
             )
-        if not chat_id or not message:
+        if not chat_id:
+            return
+        self._send_result_to_chat(chat_id=chat_id, result=result)
+
+    def _send_result_to_chat(self, *, chat_id: int, result: dict) -> None:
+        message = result.get("message")
+        if not message:
             return
 
         payload_json = {
@@ -136,6 +150,9 @@ class TelegramBotService:
         }
         if result.get("reply_markup"):
             payload_json["reply_markup"] = result["reply_markup"]
+        if result.get("video_path") or result.get("video_url"):
+            self._send_video_message(chat_id=chat_id, message=str(message), result=result)
+            return
         if result.get("photo_url"):
             httpx.post(
                 f"https://api.telegram.org/bot{self.settings.telegram_bot_token}/sendPhoto",
@@ -148,6 +165,32 @@ class TelegramBotService:
             json=payload_json,
             timeout=30,
         )
+
+    def _send_video_message(self, *, chat_id: int, message: str, result: dict) -> None:
+        reply_markup = result.get("reply_markup")
+        video_path = result.get("video_path")
+        if video_path and Path(video_path).exists():
+            with Path(video_path).open("rb") as handle:
+                data = {"chat_id": str(chat_id), "caption": message}
+                if reply_markup:
+                    data["reply_markup"] = json.dumps(reply_markup, ensure_ascii=False)
+                httpx.post(
+                    f"https://api.telegram.org/bot{self.settings.telegram_bot_token}/sendVideo",
+                    data=data,
+                    files={"video": (Path(video_path).name, handle, "video/mp4")},
+                    timeout=120,
+                )
+            return
+        video_url = result.get("video_url")
+        if video_url:
+            payload = {"chat_id": chat_id, "video": video_url, "caption": message}
+            if reply_markup:
+                payload["reply_markup"] = reply_markup
+            httpx.post(
+                f"https://api.telegram.org/bot{self.settings.telegram_bot_token}/sendVideo",
+                json=payload,
+                timeout=60,
+            )
 
     def _accounts_summary(self, user: User) -> dict:
         accounts = self.session.query(SocialAccount).filter(SocialAccount.user_id == user.id).order_by(SocialAccount.platform, SocialAccount.id).all()
@@ -386,7 +429,9 @@ class TelegramBotService:
             video = self.orchestrator.request_video(prompt)
         except Exception as exc:
             return {"message": f"Video uretilemedi: {exc}"}
-        return self._video_approval_card(video, prefix="Video istegi olusturuldu.")
+        result = self._video_approval_card(video, prefix="Video istegi olusturuldu.")
+        self._start_video_tracking(video.id, chat_id=self._selected_chat_id())
+        return result
 
     def _history_command(self, text: str) -> dict:
         parts = text.split(maxsplit=2)
@@ -470,7 +515,12 @@ class TelegramBotService:
             refreshed_video = self.orchestrator.refresh_video(video)
         except Exception as exc:
             return {"message": f"Video durumu yenilenemedi: {exc}"}
-        return self._video_approval_card(refreshed_video, prefix="Video durumu yenilendi.")
+        result = self._video_approval_card(refreshed_video, prefix="Video durumu yenilendi.")
+        if refreshed_video.storage_path:
+            result["video_path"] = refreshed_video.storage_path
+        elif refreshed_video.preview_url:
+            result["video_url"] = refreshed_video.preview_url
+        return result
 
     def _cover_prompts_command(self, text: str) -> dict:
         video_id = self._parse_single_int_argument(text, command="/cover_prompts")
@@ -525,6 +575,9 @@ class TelegramBotService:
                 }
             result = self._video_approval_card(video, prefix="Prompttan video uretim istegi olusturuldu.")
             result["callback_message"] = "Video istegi baslatildi."
+            callback_message = callback_query.get("message") or {}
+            callback_chat = callback_message.get("chat") or {}
+            self._start_video_tracking(video.id, chat_id=callback_chat.get("id"))
             return result
         if len(parts) != 3 or not parts[2].isdigit():
             return {"message": "Gecersiz buton islemi.", "callback_message": "Gecersiz istek."}
@@ -625,6 +678,8 @@ class TelegramBotService:
 
     def _video_approval_card(self, video: Video, *, prefix: str) -> dict:
         preview = video.preview_url or "yok"
+        merge_payload = video.format_payload.get("merge") or {}
+        merge_status = merge_payload.get("status") or "bekleniyor"
         return {
             "message": (
                 f"{prefix}\n\n"
@@ -633,6 +688,7 @@ class TelegramBotService:
                 f"Baslik: {video.title}\n"
                 f"Provider: {video.provider_name}\n"
                 f"Sure: {video.format_payload.get('total_duration_seconds', 20)} saniye toplam, {video.format_payload.get('segment_count', 2)}x{video.format_payload.get('segment_duration_seconds', 10)} saniye\n"
+                f"Merge: {merge_status}\n"
                 f"Onizleme: {preview}\n\n"
                 "Sonraki adim: Onayla, reddet veya yeniden uret. Video brief duzenlemek icin /edit_video kullan. Islem suruyorsa /refresh_video ile son durumu cek. Segmentler hazirsa /merge_video ile birlestir."
             ),
@@ -884,11 +940,91 @@ class TelegramBotService:
             return None
         return self.session.get(Niche, int(niche_id))
 
+    def _selected_chat_id(self) -> int | None:
+        config = self._telegram_state_config()
+        if config is None:
+            return None
+        chat_id = (config.config_payload or {}).get("selected_chat_id")
+        return int(chat_id) if chat_id else None
+
     def _require_selected_niche(self) -> Niche:
         niche = self._selected_niche()
         if niche is None:
             raise ValueError("Aktif nis secilmemis. Once /select_niche <niche_id> kullan.")
         return niche
+
+    def _start_video_tracking(self, video_id: int, *, chat_id: int | None) -> None:
+        if not self.settings.telegram_bot_token or not chat_id:
+            return
+        with self._tracker_lock:
+            if video_id in self._active_video_trackers:
+                return
+            self._active_video_trackers.add(video_id)
+        tracker = threading.Thread(target=self._track_video_until_ready, args=(video_id, chat_id), daemon=True)
+        tracker.start()
+
+    @classmethod
+    def _release_video_tracker(cls, video_id: int) -> None:
+        with cls._tracker_lock:
+            cls._active_video_trackers.discard(video_id)
+
+    @classmethod
+    def _track_video_until_ready(cls, video_id: int, chat_id: int) -> None:
+        session = SessionLocal()
+        settings = get_settings()
+        service = cls(session, settings)
+        try:
+            service._send_result_to_chat(
+                chat_id=chat_id,
+                result={"message": f"Video {video_id} isleme alindi. Her 1 dakikada bir durum guncellemesi paylasacagim."},
+            )
+            for _ in range(30):
+                time.sleep(60)
+                video = session.get(Video, video_id)
+                if video is None:
+                    service._send_result_to_chat(chat_id=chat_id, result={"message": f"Video {video_id} bulunamadi. Takip durduruldu."})
+                    return
+                session.refresh(video)
+                try:
+                    video = service.orchestrator.refresh_video(video)
+                except Exception as exc:
+                    service._send_result_to_chat(chat_id=chat_id, result={"message": f"Video {video_id} yenileme hatasi: {exc}"})
+                    return
+
+                if video.status == VideoStatus.READY:
+                    result = service._video_approval_card(video, prefix="Video hazirlandi.")
+                    if video.storage_path:
+                        result["video_path"] = video.storage_path
+                    elif video.preview_url:
+                        result["video_url"] = video.preview_url
+                    service._send_result_to_chat(chat_id=chat_id, result=result)
+                    return
+
+                if video.status == VideoStatus.REJECTED:
+                    service._send_result_to_chat(chat_id=chat_id, result={"message": f"Video {video_id} basarisiz oldu. /regenerate_video {video_id} ile tekrar deneyebilirsin."})
+                    return
+
+                service._send_result_to_chat(
+                    chat_id=chat_id,
+                    result={
+                        "message": service._build_video_progress_message(video),
+                    },
+                )
+            service._send_result_to_chat(chat_id=chat_id, result={"message": f"Video {video_id} hala isleniyor. /refresh_video {video_id} ile manuel kontrol edebilirsin."})
+        finally:
+            session.close()
+            cls._release_video_tracker(video_id)
+
+    @staticmethod
+    def _build_video_progress_message(video: Video) -> str:
+        segments = list((video.format_payload or {}).get("segments") or [])
+        lines = [f"Video {video.id} hala isleniyor.", f"Genel durum: {video.status.value}"]
+        for segment in segments:
+            lines.append(
+                f"- Segment {segment.get('segment_index')}: {segment.get('status', 'unknown')}"
+            )
+        lines.append(f"Son durum icin: /refresh_video {video.id}")
+        return "\n".join(lines)
 
     @staticmethod
     def _parse_id_and_instruction(text: str, *, command: str) -> tuple[int, str]:
@@ -956,6 +1092,10 @@ class TelegramBotService:
             user.telegram_user_id = telegram_user_id
         if telegram_chat_id:
             user.telegram_chat_id = telegram_chat_id
+            state = self._telegram_state_config(create=True)
+            state.enabled = True
+            state.config_payload = {**(state.config_payload or {}), "selected_chat_id": telegram_chat_id}
+            self.session.add(state)
         first_name = from_user.get("first_name")
         username = from_user.get("username")
         if username:

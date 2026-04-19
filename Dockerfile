@@ -8,7 +8,11 @@ ENV PYTHONUNBUFFERED=1
 COPY pyproject.toml README.md ./
 COPY app ./app
 
-RUN pip install --no-cache-dir --upgrade pip && pip install --no-cache-dir .
+RUN apt-get update \
+	&& apt-get install -y --no-install-recommends ffmpeg \
+	&& rm -rf /var/lib/apt/lists/* \
+	&& pip install --no-cache-dir --upgrade pip \
+	&& pip install --no-cache-dir .
 
 EXPOSE 8000
 
