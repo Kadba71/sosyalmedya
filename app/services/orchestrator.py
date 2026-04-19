@@ -33,8 +33,15 @@ class OrchestratorService:
         self.session.commit()
 
     def _fail_run(self, agent_run: AgentRun, error_message: str) -> None:
-        agent_run.status = AgentRunStatus.FAILED
-        agent_run.error_message = error_message
+        self.session.rollback()
+        failed_run = AgentRun(
+            agent_type=agent_run.agent_type,
+            status=AgentRunStatus.FAILED,
+            input_payload=agent_run.input_payload,
+            output_payload={},
+            error_message=error_message,
+        )
+        self.session.add(failed_run)
         self.session.commit()
 
     def daily_scan(self, project: Project) -> list[Niche]:

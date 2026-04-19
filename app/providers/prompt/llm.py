@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 from app.providers.base import PromptProvider, PromptResult
 from app.providers.llm_client import LLMChatClient
 
@@ -36,15 +38,15 @@ class LLMPromptProvider(PromptProvider):
         for item in prompts:
             results.append(
                 PromptResult(
-                    title=item["title"],
-                    body=item["body"],
-                    target_platforms=item.get("target_platforms", ["youtube", "instagram", "tiktok", "facebook"]),
-                    tone=item.get("tone", "authoritative"),
+                    title=self._coerce_text(item.get("title"), fallback="Baslik uretilmedi"),
+                    body=self._coerce_text(item.get("body"), fallback="Prompt govdesi uretilmedi"),
+                    target_platforms=self._coerce_platforms(item.get("target_platforms")),
+                    tone=self._coerce_text(item.get("tone"), fallback="authoritative"),
                     rank=int(item.get("rank", 1)),
                     metadata_payload={
-                        "hook": item.get("hook", ""),
-                        "cta": item.get("cta", ""),
-                        "visual_style": item.get("visual_style", ""),
+                        "hook": self._coerce_text(item.get("hook"), fallback=""),
+                        "cta": self._coerce_text(item.get("cta"), fallback=""),
+                        "visual_style": self._coerce_text(item.get("visual_style"), fallback=""),
                         "provider_model": used_model,
                         "format": "vertical-short",
                         "aspect_ratio": "9:16",
@@ -88,15 +90,15 @@ class LLMPromptProvider(PromptProvider):
 
         item = payload.get("prompt") or {}
         return PromptResult(
-            title=item.get("title", f"{current_title} - revised"),
-            body=item.get("body", f"{current_body}\n\nRevision instruction: {instruction}"),
-            target_platforms=item.get("target_platforms", ["youtube", "instagram", "tiktok", "facebook"]),
-            tone=item.get("tone", "authoritative"),
+            title=self._coerce_text(item.get("title"), fallback=f"{current_title} - revised"),
+            body=self._coerce_text(item.get("body"), fallback=f"{current_body}\n\nRevision instruction: {instruction}"),
+            target_platforms=self._coerce_platforms(item.get("target_platforms")),
+            tone=self._coerce_text(item.get("tone"), fallback="authoritative"),
             rank=int(item.get("rank", 1)),
             metadata_payload={
-                "hook": item.get("hook", ""),
-                "cta": item.get("cta", ""),
-                "visual_style": item.get("visual_style", ""),
+                "hook": self._coerce_text(item.get("hook"), fallback=""),
+                "cta": self._coerce_text(item.get("cta"), fallback=""),
+                "visual_style": self._coerce_text(item.get("visual_style"), fallback=""),
                 "provider_model": used_model,
                 "revision_instruction": instruction,
                 "format": "vertical-short",
@@ -107,3 +109,33 @@ class LLMPromptProvider(PromptProvider):
                 "continuation_rule": "segment_2_continues_from_segment_1_last_frame",
             },
         )
+
+    @staticmethod
+    def _coerce_text(value, *, fallback: str) -> str:
+        if value is None:
+            return fallback
+        if isinstance(value, str):
+            return value.strip() or fallback
+        if isinstance(value, list):
+            parts = [LLMPromptProvider._coerce_text(item, fallback="") for item in value]
+            text = "\n".join(part for part in parts if part).strip()
+            return text or fallback
+        if isinstance(value, dict):
+            try:
+                return json.dumps(value, ensure_ascii=False)
+            except Exception:
+                return fallback
+        return str(value).strip() or fallback
+
+    @staticmethod
+    def _coerce_platforms(value) -> list[str]:
+        default_platforms = ["youtube", "instagram", "tiktok", "facebook"]
+        if value is None:
+            return default_platforms
+        if isinstance(value, str):
+            candidate = value.strip().lower()
+            return [candidate] if candidate else default_platforms
+        if isinstance(value, list):
+            normalized = [str(item).strip().lower() for item in value if str(item).strip()]
+            return normalized or default_platforms
+        return default_platforms

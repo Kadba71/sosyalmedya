@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.config import get_settings
 from app.db.models import AiderTaskStatus, Base, Project, ProviderConfig, User
-from app.providers.base import TrendResult
+from app.providers.base import PromptResult, TrendResult
 from app.providers.registry import ProviderRegistry
 from app.services.aider_service import AiderTaskService
 from app.schemas.api import AiderTaskCreateRequest, AiderTaskUpdateRequest
@@ -102,3 +102,39 @@ def test_llm_trend_provider_keeps_market_signals(monkeypatch) -> None:
     assert isinstance(result[0], TrendResult)
     assert result[0].context_payload["market_signals"]["youtube"][0]["title"] == "Festival fashion"
     assert result[0].context_payload["platform_signals"] == ["youtube"]
+
+
+def test_llm_prompt_provider_normalizes_non_string_fields(monkeypatch) -> None:
+    settings = get_settings()
+    provider = ProviderRegistry(settings, build_session()).prompt_provider()
+
+    monkeypatch.setattr(
+        provider.client,
+        "complete_json",
+        lambda **kwargs: {
+            "prompts": [
+                {
+                    "title": ["Osmanli'nin Kayip Hazineleri"],
+                    "body": [
+                        {"scene": 1, "description": "Acilis sahnesi"},
+                        "Kapanista gizemi acikla",
+                    ],
+                    "target_platforms": "youtube",
+                    "tone": ["dramatic"],
+                    "rank": 1,
+                    "hook": ["Bu hazine neden bulunamadi?"],
+                    "cta": {"text": "devami icin takip et"},
+                    "visual_style": ["sinematik", "karanlik"],
+                }
+            ]
+        },
+    )
+
+    results = provider.generate_prompts(niche_name="Tarih", niche_description="Desc", market="tr-TR", count=1)
+
+    assert isinstance(results[0], PromptResult)
+    assert results[0].title == "Osmanli'nin Kayip Hazineleri"
+    assert "Acilis sahnesi" in results[0].body
+    assert results[0].target_platforms == ["youtube"]
+    assert results[0].tone == "dramatic"
+    assert results[0].metadata_payload["hook"] == "Bu hazine neden bulunamadi?"
