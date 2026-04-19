@@ -165,6 +165,41 @@ def test_help_command_contains_detailed_descriptions() -> None:
     assert "/merge_video <video_id>" in result["message"]
 
 
+def test_scan_command_lists_discovered_niches(monkeypatch) -> None:
+    session = build_session()
+    settings = Settings(secret_key="test-secret")
+    service = TelegramBotService(session, settings)
+
+    service.handle_update(
+        TelegramWebhookPayload(
+            message={
+                "text": "/start",
+                "chat": {"id": 111},
+                "from": {"id": 222, "first_name": "Owner", "username": "owner"},
+            }
+        )
+    )
+
+    first_niche = Niche(project_id=1, name="Kripto Ozeti", description="desc", source="llm", trend_score=88, context_payload={})
+    second_niche = Niche(project_id=1, name="Teknoloji Firsatlari", description="desc", source="llm", trend_score=81, context_payload={})
+    monkeypatch.setattr(service.orchestrator, "daily_scan", lambda project: [first_niche, second_niche])
+
+    result = service.handle_update(
+        TelegramWebhookPayload(
+            message={
+                "text": "/scan",
+                "chat": {"id": 111},
+                "from": {"id": 222, "first_name": "Owner", "username": "owner"},
+            }
+        )
+    )
+
+    assert "2 trend nis bulundu." in result["message"]
+    assert "Bulunan nisler:" in result["message"]
+    assert "- Kripto Ozeti" in result["message"]
+    assert "- Teknoloji Firsatlari" in result["message"]
+
+
 def test_publish_check_command_reports_readiness(monkeypatch) -> None:
     session = build_session()
     settings = Settings(secret_key="test-secret")

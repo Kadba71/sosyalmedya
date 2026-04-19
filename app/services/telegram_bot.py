@@ -41,7 +41,13 @@ class TelegramBotService:
         try:
             if text == "/scan":
                 niches = self.orchestrator.daily_scan(project)
-                return {"message": f"{len(niches)} trend nis bulundu.", "niches": [niche.name for niche in niches]}
+                niche_names = [niche.name for niche in niches]
+                lines = [f"{len(niches)} trend nis bulundu."]
+                if niche_names:
+                    lines.append("")
+                    lines.append("Bulunan nisler:")
+                    lines.extend(f"- {name}" for name in niche_names)
+                return {"message": "\n".join(lines), "niches": niche_names}
             if text.startswith("/prompts"):
                 return self._prompts_command(text)
             if text.startswith("/video"):
