@@ -60,6 +60,90 @@ class OrchestratorService:
             self._fail_run(agent_run, str(exc))
             raise
 
+    def research_niche_topics(self, niche: Niche, *, count: int = 5) -> list[dict]:
+        agent_run = self._start_run(AgentType.SCAN, {"niche_id": niche.id, "mode": "topic_research", "count": count})
+        try:
+            topics = self.providers.trend_provider().discover_topics(
+                niche_name=niche.name,
+                niche_description=niche.description,
+                market=niche.project.market,
+                niche_context=niche.context_payload,
+                count=count,
+            )
+            serialized_topics = [
+                {
+                    "index": index,
+                    "title": item.title,
+                    "summary": item.summary,
+                    "interest_score": item.interest_score,
+                    "keywords": item.keywords,
+                    "source": item.source,
+                    "context_payload": item.context_payload,
+                }
+                for index, item in enumerate(topics, start=1)
+            ]
+            niche.context_payload = {
+                **(niche.context_payload or {}),
+                "researched_topics": serialized_topics,
+            }
+            self.session.add(niche)
+            self.session.commit()
+            self._finish_run(agent_run, {"niche_id": niche.id, "topic_count": len(serialized_topics)})
+            return serialized_topics
+        except Exception as exc:
+            self._fail_run(agent_run, str(exc))
+            raise
+
+    def generate_prompt_for_topic(self, niche: Niche, *, topic_index: int) -> Prompt:
+        topics = list((niche.context_payload or {}).get("researched_topics") or [])
+        if not topics:
+            topics = self.research_niche_topics(niche)
+        selected_topic = next((item for item in topics if int(item.get("index", 0)) == topic_index), None)
+        if selected_topic is None:
+            raise ValueError("Secilen konu bulunamadi.")
+
+        agent_run = self._start_run(AgentType.PROMPT, {"niche_id": niche.id, "topic_index": topic_index, "mode": "topic_prompt"})
+        try:
+            topic_summary = selected_topic.get("summary") or ""
+            topic_keywords = ", ".join(selected_topic.get("keywords") or [])
+            context_payload = selected_topic.get("context_payload") or {}
+            enriched_description = (
+                f"{niche.description}\n\n"
+                f"Secilen konu: {selected_topic['title']}\n"
+                f"Konu ozeti: {topic_summary}\n"
+                f"Anahtar kelimeler: {topic_keywords}\n"
+                f"Icerik acisi: {context_payload.get('content_angle', '')}\n"
+                f"Hook onerisi: {context_payload.get('suggested_hook', '')}\n"
+                f"Izleyici problemi: {context_payload.get('viewer_problem', '')}"
+            )
+            result = self.providers.prompt_provider().generate_prompts(
+                niche_name=f"{niche.name} - {selected_topic['title']}",
+                niche_description=enriched_description,
+                market=niche.project.market,
+                count=1,
+            )[0]
+            prompt = Prompt(
+                niche_id=niche.id,
+                title=result.title,
+                body=result.body,
+                target_platforms=result.target_platforms,
+                tone=result.tone,
+                rank=result.rank,
+                expires_at=datetime.utcnow() + timedelta(hours=self.settings.prompt_retention_hours),
+                metadata_payload={
+                    **result.metadata_payload,
+                    "selected_topic": selected_topic,
+                    "topic_index": topic_index,
+                },
+            )
+            self.session.add(prompt)
+            self.session.commit()
+            self._finish_run(agent_run, {"prompt_id": prompt.id, "niche_id": niche.id, "topic_index": topic_index})
+            return prompt
+        except Exception as exc:
+            self._fail_run(agent_run, str(exc))
+            raise
+
     def generate_prompts(self, niche: Niche) -> list[Prompt]:
         agent_run = self._start_run(AgentType.PROMPT, {"niche_id": niche.id})
         try:

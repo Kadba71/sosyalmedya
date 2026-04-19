@@ -13,6 +13,16 @@ class TrendResult:
 
 
 @dataclass(slots=True)
+class TopicResult:
+    title: str
+    summary: str
+    interest_score: int
+    keywords: list[str] = field(default_factory=list)
+    source: str = "topic-research"
+    context_payload: dict = field(default_factory=dict)
+
+
+@dataclass(slots=True)
 class PromptResult:
     title: str
     body: str
@@ -35,6 +45,9 @@ class VideoRequestResult:
 
 class TrendProvider(Protocol):
     def discover_trends(self, *, market: str) -> list[TrendResult]:
+        ...
+
+    def discover_topics(self, *, niche_name: str, niche_description: str, market: str, niche_context: dict | None = None, count: int = 5) -> list[TopicResult]:
         ...
 
 

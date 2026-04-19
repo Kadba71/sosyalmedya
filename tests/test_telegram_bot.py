@@ -180,8 +180,8 @@ def test_scan_command_lists_discovered_niches(monkeypatch) -> None:
         )
     )
 
-    first_niche = Niche(project_id=1, name="Kripto Ozeti", description="desc", source="llm", trend_score=88, context_payload={})
-    second_niche = Niche(project_id=1, name="Teknoloji Firsatlari", description="desc", source="llm", trend_score=81, context_payload={})
+    first_niche = Niche(id=10, project_id=1, name="Kripto Ozeti", description="desc", source="llm", trend_score=88, context_payload={})
+    second_niche = Niche(id=11, project_id=1, name="Teknoloji Firsatlari", description="desc", source="llm", trend_score=81, context_payload={})
     monkeypatch.setattr(service.orchestrator, "daily_scan", lambda project: [first_niche, second_niche])
 
     result = service.handle_update(
@@ -196,8 +196,168 @@ def test_scan_command_lists_discovered_niches(monkeypatch) -> None:
 
     assert "2 trend nis bulundu." in result["message"]
     assert "Bulunan nisler:" in result["message"]
-    assert "- Kripto Ozeti" in result["message"]
-    assert "- Teknoloji Firsatlari" in result["message"]
+    assert "- 10: Kripto Ozeti | skor 88" in result["message"]
+    assert "- 11: Teknoloji Firsatlari | skor 81" in result["message"]
+    assert "/topics <niche_id>" in result["message"]
+
+
+def test_topics_command_lists_researched_topics_with_buttons(monkeypatch) -> None:
+    session = build_session()
+    settings = Settings(secret_key="test-secret")
+    service = TelegramBotService(session, settings)
+
+    service.handle_update(
+        TelegramWebhookPayload(
+            message={
+                "text": "/start",
+                "chat": {"id": 111},
+                "from": {"id": 222, "first_name": "Owner", "username": "owner"},
+            }
+        )
+    )
+
+    owner = session.query(User).first()
+    project = session.query(Project).filter(Project.user_id == owner.id).one()
+    niche = Niche(project_id=project.id, name="AI otomasyon", description="desc", source="llm", trend_score=90, context_payload={})
+    session.add(niche)
+    session.commit()
+
+    monkeypatch.setattr(
+        service.orchestrator,
+        "research_niche_topics",
+        lambda current_niche: [
+            {"index": 1, "title": "En cok izlenen 3 otomasyon", "summary": "ilk", "interest_score": 94},
+            {"index": 2, "title": "Yeni baslayanlarin hatalari", "summary": "ikinci", "interest_score": 89},
+        ],
+    )
+
+    result = service.handle_update(
+        TelegramWebhookPayload(
+            message={
+                "text": f"/topics {niche.id}",
+                "chat": {"id": 111},
+                "from": {"id": 222, "first_name": "Owner", "username": "owner"},
+            }
+        )
+    )
+
+    assert "Niche secildi: AI otomasyon" in result["message"]
+    assert "1. En cok izlenen 3 otomasyon | skor 94" in result["message"]
+    assert result["reply_markup"]["inline_keyboard"][0][0]["callback_data"] == f"topicprompt:{niche.id}:1"
+
+
+def test_topic_prompt_command_generates_topic_specific_prompt(monkeypatch) -> None:
+    session = build_session()
+    settings = Settings(secret_key="test-secret")
+    service = TelegramBotService(session, settings)
+
+    service.handle_update(
+        TelegramWebhookPayload(
+            message={
+                "text": "/start",
+                "chat": {"id": 111},
+                "from": {"id": 222, "first_name": "Owner", "username": "owner"},
+            }
+        )
+    )
+
+    owner = session.query(User).first()
+    project = session.query(Project).filter(Project.user_id == owner.id).one()
+    niche = Niche(project_id=project.id, name="AI otomasyon", description="desc", source="llm", trend_score=90, context_payload={})
+    session.add(niche)
+    session.commit()
+
+    prompt = Prompt(
+        niche_id=niche.id,
+        title="Secilen konu promptu",
+        body="Metin",
+        target_platforms=["youtube"],
+        tone="engaging",
+        rank=1,
+        expires_at=datetime.utcnow() + timedelta(hours=24),
+        metadata_payload={"selected_topic": {"title": "En cok izlenen otomasyon"}},
+    )
+    session.add(prompt)
+    session.commit()
+
+    monkeypatch.setattr(service.orchestrator, "generate_prompt_for_topic", lambda current_niche, topic_index: prompt)
+
+    result = service.handle_update(
+        TelegramWebhookPayload(
+            message={
+                "text": f"/topic_prompt {niche.id} 1",
+                "chat": {"id": 111},
+                "from": {"id": 222, "first_name": "Owner", "username": "owner"},
+            }
+        )
+    )
+
+    assert "Secilen konu icin prompt hazirlandi." in result["message"]
+    assert "Konu: En cok izlenen otomasyon" in result["message"]
+    assert result["reply_markup"]["inline_keyboard"][1][0]["callback_data"] == f"makevideo:prompt:{prompt.id}"
+
+
+def test_callback_query_makevideo_creates_video_card(monkeypatch) -> None:
+    session = build_session()
+    settings = Settings(secret_key="test-secret")
+    service = TelegramBotService(session, settings)
+
+    service.handle_update(
+        TelegramWebhookPayload(
+            message={
+                "text": "/start",
+                "chat": {"id": 111},
+                "from": {"id": 222, "first_name": "Owner", "username": "owner"},
+            }
+        )
+    )
+
+    owner = session.query(User).first()
+    project = session.query(Project).filter(Project.user_id == owner.id).one()
+    niche = Niche(project_id=project.id, name="Trend", description="Desc", source="web", trend_score=91, context_payload={})
+    session.add(niche)
+    session.flush()
+    prompt = Prompt(
+        niche_id=niche.id,
+        title="Prompt",
+        body="Metin",
+        target_platforms=["youtube"],
+        tone="engaging",
+        rank=1,
+        expires_at=datetime.utcnow() + timedelta(hours=24),
+        metadata_payload={"selected_topic": {"title": "Hizli buyuyen konu"}},
+    )
+    session.add(prompt)
+    session.flush()
+    video = Video(
+        prompt_id=prompt.id,
+        status=VideoStatus.READY,
+        title="Video",
+        storage_path=None,
+        preview_url="https://cdn.example.com/video.mp4",
+        provider_name="kling",
+        provider_job_id="job-1",
+        format_payload={},
+        expires_at=datetime.utcnow() + timedelta(hours=24),
+    )
+    session.add(video)
+    session.commit()
+
+    monkeypatch.setattr(service.orchestrator, "request_video", lambda current_prompt: video)
+
+    result = service.handle_update(
+        TelegramWebhookPayload(
+            callback_query={
+                "id": "cb-makevideo-1",
+                "data": f"makevideo:prompt:{prompt.id}",
+                "message": {"chat": {"id": 111}},
+                "from": {"id": 222, "first_name": "Owner", "username": "owner"},
+            }
+        )
+    )
+
+    assert "Prompttan video uretim istegi olusturuldu." in result["message"]
+    assert result["callback_message"] == "Video istegi baslatildi."
 
 
 def test_publish_check_command_reports_readiness(monkeypatch) -> None:

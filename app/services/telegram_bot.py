@@ -41,13 +41,18 @@ class TelegramBotService:
         try:
             if text == "/scan":
                 niches = self.orchestrator.daily_scan(project)
-                niche_names = [niche.name for niche in niches]
                 lines = [f"{len(niches)} trend nis bulundu."]
-                if niche_names:
+                if niches:
                     lines.append("")
                     lines.append("Bulunan nisler:")
-                    lines.extend(f"- {name}" for name in niche_names)
-                return {"message": "\n".join(lines), "niches": niche_names}
+                    lines.extend(f"- {niche.id}: {niche.name} | skor {niche.trend_score}" for niche in niches)
+                    lines.append("")
+                    lines.append("Sonraki adim: /topics <niche_id> ile secilen nis icindeki en cok izlenen konu basliklarini getir.")
+                return {"message": "\n".join(lines), "niches": [niche.name for niche in niches], "niche_ids": [niche.id for niche in niches]}
+            if text.startswith("/topics"):
+                return self._topics_command(text)
+            if text.startswith("/topic_prompt"):
+                return self._topic_prompt_command(text)
             if text.startswith("/prompts"):
                 return self._prompts_command(text)
             if text.startswith("/video"):
@@ -267,6 +272,35 @@ class TelegramBotService:
         prompts = self.orchestrator.generate_prompts(niche)
         return {"message": f"{len(prompts)} prompt uretildi.", "prompt_ids": [prompt.id for prompt in prompts]}
 
+    def _topics_command(self, text: str) -> dict:
+        niche_id = self._parse_single_int_argument(text, command="/topics")
+        niche = self.session.get(Niche, niche_id)
+        if niche is None:
+            raise ValueError("Niche bulunamadi.")
+        topics = self.orchestrator.research_niche_topics(niche)
+        lines = [f"Niche secildi: {niche.name}", "", f"{len(topics)} konu bulundu:"]
+        for item in topics:
+            lines.append(f"{item['index']}. {item['title']} | skor {item['interest_score']}")
+            if item.get("summary"):
+                lines.append(f"   {item['summary']}")
+        lines.append("")
+        lines.append("Sonraki adim: Alttaki butonla veya /topic_prompt <niche_id> <konu_no> ile konuya ozel prompt uret.")
+        keyboard_rows = [[(f"Prompt {item['index']}", f"topicprompt:{niche.id}:{item['index']}")] for item in topics]
+        return {
+            "message": "\n".join(lines),
+            "niche_id": niche.id,
+            "topics": topics,
+            "reply_markup": self._build_inline_keyboard(keyboard_rows) if keyboard_rows else None,
+        }
+
+    def _topic_prompt_command(self, text: str) -> dict:
+        niche_id, topic_index = self._parse_two_int_arguments(text, command="/topic_prompt")
+        niche = self.session.get(Niche, niche_id)
+        if niche is None:
+            raise ValueError("Niche bulunamadi.")
+        prompt = self.orchestrator.generate_prompt_for_topic(niche, topic_index=topic_index)
+        return self._prompt_approval_card(prompt, prefix="Secilen konu icin prompt hazirlandi.")
+
     def _video_command(self, text: str) -> dict:
         prompt_id = self._parse_single_int_argument(text, command="/video")
         prompt = self.session.get(Prompt, prompt_id)
@@ -380,6 +414,22 @@ class TelegramBotService:
     def _handle_callback_query(self, callback_query: dict) -> dict:
         data = str(callback_query.get("data") or "")
         parts = data.split(":")
+        if len(parts) == 3 and parts[0] == "topicprompt" and parts[1].isdigit() and parts[2].isdigit():
+            niche = self.session.get(Niche, int(parts[1]))
+            if niche is None:
+                return {"message": "Niche bulunamadi.", "callback_message": "Niche yok."}
+            prompt = self.orchestrator.generate_prompt_for_topic(niche, topic_index=int(parts[2]))
+            result = self._prompt_approval_card(prompt, prefix="Secilen konu icin prompt hazirlandi.")
+            result["callback_message"] = "Prompt hazirlandi."
+            return result
+        if len(parts) == 3 and parts[0] == "makevideo" and parts[1] == "prompt" and parts[2].isdigit():
+            prompt = self.session.get(Prompt, int(parts[2]))
+            if prompt is None:
+                return {"message": "Prompt bulunamadi.", "callback_message": "Prompt yok."}
+            video = self.orchestrator.request_video(prompt)
+            result = self._video_approval_card(video, prefix="Prompttan video uretim istegi olusturuldu.")
+            result["callback_message"] = "Video istegi baslatildi."
+            return result
         if len(parts) != 3 or not parts[2].isdigit():
             return {"message": "Gecersiz buton islemi.", "callback_message": "Gecersiz istek."}
         action_name, target_name, raw_id = parts
@@ -452,22 +502,26 @@ class TelegramBotService:
     def _prompt_approval_card(self, prompt: Prompt, *, prefix: str) -> dict:
         hook = prompt.metadata_payload.get("hook") or "-"
         visual_style = prompt.metadata_payload.get("visual_style") or "-"
+        selected_topic = prompt.metadata_payload.get("selected_topic") or {}
+        selected_topic_title = selected_topic.get("title") or "-"
         return {
             "message": (
                 f"{prefix}\n\n"
                 f"Prompt ID: {prompt.id}\n"
                 f"Versiyon: {prompt.version}\n"
                 f"Durum: {prompt.status.value} ve onay bekliyor\n"
+                f"Konu: {selected_topic_title}\n"
                 f"Baslik: {prompt.title}\n"
                 f"Ton: {prompt.tone}\n"
                 f"Hook: {hook}\n"
                 f"Gorsel stil: {visual_style}\n\n"
-                "Sonraki adim: Onayla, reddet veya yeniden uret. Metin duzenleme icin /edit_prompt kullan."
+                "Sonraki adim: Onayla, reddet, video uret veya yeniden uret. Metin duzenleme icin /edit_prompt kullan."
             ),
             "prompt_id": prompt.id,
             "reply_markup": self._build_inline_keyboard(
                 [
                     [("Onayla", f"approve:prompt:{prompt.id}"), ("Reddet", f"reject:prompt:{prompt.id}")],
+                    [("Video Uret", f"makevideo:prompt:{prompt.id}")],
                     [("Yeniden Uret", f"regenerate:prompt:{prompt.id}")],
                 ]
             ),
@@ -693,6 +747,13 @@ class TelegramBotService:
         return int(parts[1])
 
     @staticmethod
+    def _parse_two_int_arguments(text: str, *, command: str) -> tuple[int, int]:
+        parts = text.split(maxsplit=2)
+        if len(parts) != 3 or not parts[1].isdigit() or not parts[2].isdigit():
+            raise ValueError(f"Kullanim: {command} <id> <konu_no>")
+        return int(parts[1]), int(parts[2])
+
+    @staticmethod
     def _parse_id_and_instruction(text: str, *, command: str) -> tuple[int, str]:
         parts = text.split(maxsplit=2)
         if len(parts) != 3 or not parts[1].isdigit() or not parts[2].strip():
@@ -706,6 +767,8 @@ class TelegramBotService:
             "Komut Rehberi:\n\n"
             "/help\nBotta kullanabileceginiz tum komutlari ve amaclarini gosterir.\n\n"
             "/scan\nGunluk web tabanli trend niche taramasini calistirir.\n\n"
+            "/topics <niche_id>\nSecilen niche icindeki en cok izlenen konu basliklarini arastirir.\n\n"
+            "/topic_prompt <niche_id> <konu_no>\nSecilen konu icin tek, odakli bir video promptu uretir.\n\n"
             "/prompts <niche_id>\nSecilen niche icin 10 adet icerik promptu uretir.\n\n"
             "/video <prompt_id>\nSecilen prompttan video uretim istegi baslatir.\n\n"
             "/approve <niche|prompt|video> <id>\nSecilen kaydi onaylar ve pipeline'da bir sonraki asamaya gecmesini saglar.\n\n"
