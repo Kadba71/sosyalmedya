@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from app.config import Settings
 from app.db.models import AgentRun, AgentRunStatus, AgentType, Niche, Prompt, Project, Publication, PublicationStatus, SocialAccount, Video, VideoStatus
 from app.providers.registry import ProviderRegistry
+from app.providers.video.base import extract_video_url
 from app.publishers.registry import PublisherRegistry
 from app.services.cover_workflow_service import CoverWorkflowService
 from app.services.video_composition_service import VideoCompositionService
@@ -234,7 +235,7 @@ class OrchestratorService:
                 if result.provider_job_id and hasattr(video_provider, "get_task"):
                     task = self._poll_video_task(video_provider, result.provider_job_id)
                     output = task.get("output") or {}
-                    segment_preview_url = output.get("video") or output.get("video_url") or segment_preview_url
+                    segment_preview_url = extract_video_url(output) or segment_preview_url
                     segment_payload = {**segment_payload, "task": task}
                     task_status = (task.get("status") or "").lower()
                     if task_status == "completed":
@@ -354,7 +355,7 @@ class OrchestratorService:
             if provider_job_id and hasattr(video_provider, "get_task") and segment_status in {"requested", "pending", "processing", "staged", "ready"}:
                 task = video_provider.get_task(provider_job_id)
                 output = task.get("output") or {}
-                refreshed_preview_url = output.get("video") or output.get("video_url") or segment.get("preview_url")
+                refreshed_preview_url = extract_video_url(output) or segment.get("preview_url")
                 task_status = str(task.get("status") or segment_status).lower()
                 segment["task"] = task
                 segment["preview_url"] = refreshed_preview_url
@@ -407,7 +408,7 @@ class OrchestratorService:
                             task = self._poll_video_task(video_provider, result.provider_job_id)
                             output = task.get("output") or {}
                             segment["task"] = task
-                            segment["preview_url"] = output.get("video") or output.get("video_url") or segment.get("preview_url")
+                            segment["preview_url"] = extract_video_url(output) or segment.get("preview_url")
                             task_status = str(task.get("status") or "requested").lower()
                             if task_status == "completed":
                                 segment["status"] = "ready"

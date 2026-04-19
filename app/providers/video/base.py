@@ -3,6 +3,32 @@ import httpx
 from app.providers.base import VideoProvider, VideoRequestResult
 
 
+def extract_video_url(output: dict | None) -> str | None:
+    payload = output or {}
+    direct_video = payload.get("video")
+    if isinstance(direct_video, str) and direct_video:
+        return direct_video
+    if isinstance(direct_video, dict):
+        return direct_video.get("resource_without_watermark") or direct_video.get("resource")
+
+    direct_video_url = payload.get("video_url")
+    if isinstance(direct_video_url, str) and direct_video_url:
+        return direct_video_url
+
+    works = payload.get("works") or []
+    for work in works:
+        if not isinstance(work, dict):
+            continue
+        video = work.get("video")
+        if isinstance(video, str) and video:
+            return video
+        if isinstance(video, dict):
+            resource = video.get("resource_without_watermark") or video.get("resource")
+            if resource:
+                return resource
+    return None
+
+
 class DummyVideoProvider(VideoProvider):
     def request_video(
         self,
@@ -85,7 +111,7 @@ class PiAPIKlingVideoProvider(VideoProvider):
             title=prompt_title,
             provider_name="piapi-kling-3.0",
             provider_job_id=data.get("task_id"),
-            preview_url=(data.get("output") or {}).get("video"),
+            preview_url=extract_video_url(data.get("output") or {}),
             storage_path=None,
             format_payload={
                 "status": data.get("status"),

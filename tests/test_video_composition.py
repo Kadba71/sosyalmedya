@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.config import Settings
 from app.db.models import Base, Niche, Project, Prompt, User, VideoStatus
-from app.providers.video.base import PiAPIKlingVideoProvider
+from app.providers.video.base import PiAPIKlingVideoProvider, extract_video_url
 from app.services.orchestrator import OrchestratorService
 from app.services.video_composition_service import VideoCompositionService
 
@@ -300,3 +300,101 @@ def test_kling_provider_sends_image_url(monkeypatch) -> None:
     )
 
     assert payloads[0]["input"]["image_url"] == "file:///tmp/frame.png"
+
+
+def test_extract_video_url_supports_kling_three_nested_output() -> None:
+    output = {
+        "type": "m2v_txt2video_hq",
+        "works": [
+            {
+                "video": {
+                    "resource": "https://cdn.example.com/watermarked.mp4",
+                    "resource_without_watermark": "https://cdn.example.com/final.mp4",
+                }
+            }
+        ],
+    }
+
+    assert extract_video_url(output) == "https://cdn.example.com/final.mp4"
+
+
+def test_orchestrator_refresh_video_reads_kling_three_nested_output(monkeypatch) -> None:
+    session = build_session()
+    settings = Settings(secret_key="test-secret", video_provider="dummy", video_segment_poll_attempts=1, video_segment_poll_interval_seconds=0)
+    prompt = seed_prompt(session)
+    orchestrator = OrchestratorService(session, settings)
+
+    initial_video = orchestrator.request_video(prompt)
+
+    class FakeProvider:
+        def get_task(self, task_id):
+            if task_id == "task-1":
+                return {
+                    "status": "completed",
+                    "output": {
+                        "works": [
+                            {
+                                "video": {
+                                    "resource_without_watermark": "https://cdn.example.com/seg-1.mp4",
+                                }
+                            }
+                        ]
+                    },
+                }
+            return {
+                "status": "completed",
+                "output": {
+                    "works": [
+                        {
+                            "video": {
+                                "resource_without_watermark": "https://cdn.example.com/seg-2.mp4",
+                            }
+                        }
+                    ]
+                },
+            }
+
+        def request_video(self, *, prompt_title, prompt_body, market, initial_frame_url=None, end_frame_url=None):
+            return type(
+                "Result",
+                (),
+                {
+                    "title": prompt_title,
+                    "provider_name": "fake-provider",
+                    "provider_job_id": "task-2",
+                    "preview_url": None,
+                    "storage_path": None,
+                    "format_payload": {},
+                },
+            )()
+
+    class InitialProvider:
+        def request_video(self, *, prompt_title, prompt_body, market, initial_frame_url=None, end_frame_url=None):
+            return type(
+                "Result",
+                (),
+                {
+                    "title": prompt_title,
+                    "provider_name": "fake-provider",
+                    "provider_job_id": "task-1",
+                    "preview_url": None,
+                    "storage_path": None,
+                    "format_payload": {},
+                },
+            )()
+
+        def get_task(self, task_id):
+            return {"status": "processing", "output": {}}
+
+    orchestrator = OrchestratorService(session, settings)
+    monkeypatch.setattr(orchestrator.providers, "video_provider", lambda: InitialProvider())
+    monkeypatch.setattr(orchestrator.video_composition, "extract_last_frame", lambda **kwargs: "file:///tmp/last-frame.png")
+    video = orchestrator.request_video(prompt)
+
+    monkeypatch.setattr(orchestrator.providers, "video_provider", lambda: FakeProvider())
+    monkeypatch.setattr(orchestrator, "merge_video_segments", lambda current_video: current_video)
+    refreshed = orchestrator.refresh_video(video)
+
+    assert refreshed.format_payload["segments"][0]["preview_url"] == "https://cdn.example.com/seg-1.mp4"
+    assert refreshed.format_payload["segments"][1]["preview_url"] == "https://cdn.example.com/seg-2.mp4"
+    assert refreshed.status == VideoStatus.READY

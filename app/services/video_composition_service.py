@@ -8,6 +8,7 @@ import httpx
 
 from app.config import Settings
 from app.db.models import Video
+from app.providers.video.base import extract_video_url
 
 
 class VideoCompositionError(Exception):
@@ -140,4 +141,4 @@ class VideoCompositionService:
     def _segment_url(segment: dict) -> str | None:
         task = segment.get("task") or {}
         output = task.get("output") or {}
-        return segment.get("preview_url") or output.get("video") or segment.get("storage_path")
+        return segment.get("preview_url") or extract_video_url(output) or segment.get("storage_path")
