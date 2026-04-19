@@ -7,7 +7,6 @@ ENV PYTHONUNBUFFERED=1
 
 COPY pyproject.toml README.md ./
 COPY app ./app
-COPY storage ./storage
 
 RUN pip install --no-cache-dir --upgrade pip && pip install --no-cache-dir .
 
