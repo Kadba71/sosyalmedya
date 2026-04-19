@@ -526,6 +526,104 @@ def test_callback_query_makevideo_creates_video_card(monkeypatch) -> None:
     assert result["callback_message"] == "Video istegi baslatildi."
 
 
+def test_video_command_returns_provider_error_message(monkeypatch) -> None:
+    session = build_session()
+    settings = Settings(secret_key="test-secret")
+    service = TelegramBotService(session, settings)
+
+    service.handle_update(
+        TelegramWebhookPayload(
+            message={
+                "text": "/start",
+                "chat": {"id": 111},
+                "from": {"id": 222, "first_name": "Owner", "username": "owner"},
+            }
+        )
+    )
+
+    owner = session.query(User).first()
+    project = session.query(Project).filter(Project.user_id == owner.id).one()
+    niche = Niche(project_id=project.id, name="Trend", description="Desc", source="web", trend_score=91, context_payload={})
+    session.add(niche)
+    session.flush()
+    prompt = Prompt(
+        niche_id=niche.id,
+        title="Prompt",
+        body="Metin",
+        target_platforms=["youtube"],
+        tone="engaging",
+        rank=1,
+        expires_at=datetime.utcnow() + timedelta(hours=24),
+        metadata_payload={},
+    )
+    session.add(prompt)
+    session.commit()
+
+    monkeypatch.setattr(service.orchestrator, "request_video", lambda current_prompt: (_ for _ in ()).throw(RuntimeError("401 Unauthorized")))
+
+    result = service.handle_update(
+        TelegramWebhookPayload(
+            message={
+                "text": f"/video {prompt.id}",
+                "chat": {"id": 111},
+                "from": {"id": 222, "first_name": "Owner", "username": "owner"},
+            }
+        )
+    )
+
+    assert result["message"] == "Video uretilemedi: 401 Unauthorized"
+
+
+def test_callback_query_makevideo_returns_provider_error_message(monkeypatch) -> None:
+    session = build_session()
+    settings = Settings(secret_key="test-secret")
+    service = TelegramBotService(session, settings)
+
+    service.handle_update(
+        TelegramWebhookPayload(
+            message={
+                "text": "/start",
+                "chat": {"id": 111},
+                "from": {"id": 222, "first_name": "Owner", "username": "owner"},
+            }
+        )
+    )
+
+    owner = session.query(User).first()
+    project = session.query(Project).filter(Project.user_id == owner.id).one()
+    niche = Niche(project_id=project.id, name="Trend", description="Desc", source="web", trend_score=91, context_payload={})
+    session.add(niche)
+    session.flush()
+    prompt = Prompt(
+        niche_id=niche.id,
+        title="Prompt",
+        body="Metin",
+        target_platforms=["youtube"],
+        tone="engaging",
+        rank=1,
+        expires_at=datetime.utcnow() + timedelta(hours=24),
+        metadata_payload={},
+    )
+    session.add(prompt)
+    session.commit()
+
+    monkeypatch.setattr(service.orchestrator, "request_video", lambda current_prompt: (_ for _ in ()).throw(RuntimeError("401 Unauthorized")))
+
+    result = service.handle_update(
+        TelegramWebhookPayload(
+            callback_query={
+                "id": "cb-makevideo-error-1",
+                "data": f"makevideo:prompt:{prompt.id}",
+                "message": {"chat": {"id": 111}},
+                "from": {"id": 222, "first_name": "Owner", "username": "owner"},
+            }
+        )
+    )
+
+    assert result["message"] == "Video uretilemedi: 401 Unauthorized"
+    assert result["callback_message"] == "Video uretimi basarisiz."
+
+
 def test_publish_check_command_reports_readiness(monkeypatch) -> None:
     session = build_session()
     settings = Settings(secret_key="test-secret")

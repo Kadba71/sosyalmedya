@@ -380,7 +380,10 @@ class TelegramBotService:
         prompt = self.session.get(Prompt, prompt_id)
         if prompt is None:
             raise ValueError("Prompt bulunamadi.")
-        video = self.orchestrator.request_video(prompt)
+        try:
+            video = self.orchestrator.request_video(prompt)
+        except Exception as exc:
+            return {"message": f"Video uretilemedi: {exc}"}
         return self._video_approval_card(video, prefix="Video istegi olusturuldu.")
 
     def _history_command(self, text: str) -> dict:
@@ -500,7 +503,13 @@ class TelegramBotService:
             prompt = self.session.get(Prompt, int(parts[2]))
             if prompt is None:
                 return {"message": "Prompt bulunamadi.", "callback_message": "Prompt yok."}
-            video = self.orchestrator.request_video(prompt)
+            try:
+                video = self.orchestrator.request_video(prompt)
+            except Exception as exc:
+                return {
+                    "message": f"Video uretilemedi: {exc}",
+                    "callback_message": "Video uretimi basarisiz.",
+                }
             result = self._video_approval_card(video, prefix="Prompttan video uretim istegi olusturuldu.")
             result["callback_message"] = "Video istegi baslatildi."
             return result
