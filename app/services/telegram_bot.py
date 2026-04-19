@@ -2,7 +2,7 @@ import httpx
 from sqlalchemy.orm import Session
 
 from app.config import Settings
-from app.db.models import ApprovalAction, ApprovalTarget, EditRequest, Niche, Platform, Prompt, PromptStatus, SocialAccount, User, Video, VideoStatus
+from app.db.models import ApprovalAction, ApprovalTarget, EditRequest, Niche, Platform, Prompt, PromptStatus, ProviderConfig, SocialAccount, User, Video, VideoStatus
 from app.schemas.api import TelegramWebhookPayload
 from app.services.account_validation_service import AccountValidationService
 from app.services.approval_service import ApprovalService
@@ -47,8 +47,14 @@ class TelegramBotService:
                     lines.append("Bulunan nisler:")
                     lines.extend(f"- {niche.id}: {niche.name} | skor {niche.trend_score}" for niche in niches)
                     lines.append("")
-                    lines.append("Sonraki adim: /topics <niche_id> ile secilen nis icindeki en cok izlenen konu basliklarini getir.")
+                    lines.append("Sonraki adim: /select_niche <niche_id> ile bir nis sabitle. Sonra /topics veya /prompts komutlarini idsiz kullanabilirsin.")
                 return {"message": "\n".join(lines), "niches": [niche.name for niche in niches], "niche_ids": [niche.id for niche in niches]}
+            if text.startswith("/select_niche"):
+                return self._set_selected_niche_command(text, command="/select_niche", prefix="Nis secildi ve sabitlendi.")
+            if text.startswith("/change_niche"):
+                return self._set_selected_niche_command(text, command="/change_niche", prefix="Aktif nis degistirildi.")
+            if text == "/current_niche":
+                return self._current_niche_command()
             if text.startswith("/topics"):
                 return self._topics_command(text)
             if text.startswith("/topic_prompt"):
@@ -265,16 +271,23 @@ class TelegramBotService:
         return {"message": "\n".join(lines), "publication_id": publication.id, "status": publication.status.value}
 
     def _prompts_command(self, text: str) -> dict:
-        niche_id = self._parse_single_int_argument(text, command="/prompts")
-        niche = self.session.get(Niche, niche_id)
-        if niche is None:
-            raise ValueError("Niche bulunamadi.")
+        niche_id = self._parse_optional_single_int_argument(text, command="/prompts")
+        if niche_id is None:
+            niche = self._require_selected_niche()
+        else:
+            niche = self.session.get(Niche, niche_id)
+            if niche is None:
+                raise ValueError("Niche bulunamadi.")
         prompts = self.orchestrator.generate_prompts(niche)
-        return {"message": f"{len(prompts)} prompt uretildi.", "prompt_ids": [prompt.id for prompt in prompts]}
+        return {
+            "message": f"{niche.name} icin {len(prompts)} prompt uretildi.",
+            "prompt_ids": [prompt.id for prompt in prompts],
+            "selected_niche_id": niche.id,
+        }
 
     def _topics_command(self, text: str) -> dict:
-        niche_id = self._parse_single_int_argument(text, command="/topics")
-        niche = self.session.get(Niche, niche_id)
+        niche_id = self._parse_optional_single_int_argument(text, command="/topics")
+        niche = self._require_selected_niche() if niche_id is None else self.session.get(Niche, niche_id)
         if niche is None:
             raise ValueError("Niche bulunamadi.")
         topics = self.orchestrator.research_niche_topics(niche)
@@ -300,6 +313,44 @@ class TelegramBotService:
             raise ValueError("Niche bulunamadi.")
         prompt = self.orchestrator.generate_prompt_for_topic(niche, topic_index=topic_index)
         return self._prompt_approval_card(prompt, prefix="Secilen konu icin prompt hazirlandi.")
+
+    def _set_selected_niche_command(self, text: str, *, command: str, prefix: str) -> dict:
+        niche_id = self._parse_single_int_argument(text, command=command)
+        niche = self.session.get(Niche, niche_id)
+        if niche is None:
+            return {"message": "Niche bulunamadi."}
+        state = self._telegram_state_config(create=True)
+        state.enabled = True
+        state.config_payload = {
+            **(state.config_payload or {}),
+            "selected_niche_id": niche.id,
+            "selected_niche_name": niche.name,
+            "selected_project_id": niche.project_id,
+        }
+        self.session.add(state)
+        self.session.commit()
+        return {
+            "message": (
+                f"{prefix}\n\n"
+                f"Aktif nis: {niche.id} - {niche.name}\n"
+                "Bu nisten sonra /topics ve /prompts komutlarini idsiz kullanabilirsin.\n"
+                "Nis degistirmek icin /change_niche <niche_id> kullan."
+            ),
+            "selected_niche_id": niche.id,
+        }
+
+    def _current_niche_command(self) -> dict:
+        niche = self._selected_niche()
+        if niche is None:
+            return {"message": "Aktif bir nis secilmemis. Once /scan sonra /select_niche <niche_id> kullan."}
+        return {
+            "message": (
+                f"Aktif nis: {niche.id} - {niche.name}\n"
+                "Bu nisten devam ederek /topics veya /prompts komutlarini idsiz kullanabilirsin.\n"
+                "Degistirmek icin /change_niche <niche_id> kullan."
+            ),
+            "selected_niche_id": niche.id,
+        }
 
     def _video_command(self, text: str) -> dict:
         prompt_id = self._parse_single_int_argument(text, command="/video")
@@ -747,11 +798,45 @@ class TelegramBotService:
         return int(parts[1])
 
     @staticmethod
+    def _parse_optional_single_int_argument(text: str, *, command: str) -> int | None:
+        parts = text.split(maxsplit=1)
+        if len(parts) == 1:
+            return None
+        if len(parts) != 2 or not parts[1].isdigit():
+            raise ValueError(f"Kullanim: {command} <id>")
+        return int(parts[1])
+
+    @staticmethod
     def _parse_two_int_arguments(text: str, *, command: str) -> tuple[int, int]:
         parts = text.split(maxsplit=2)
         if len(parts) != 3 or not parts[1].isdigit() or not parts[2].isdigit():
             raise ValueError(f"Kullanim: {command} <id> <konu_no>")
         return int(parts[1]), int(parts[2])
+
+    def _telegram_state_config(self, *, create: bool = False) -> ProviderConfig | None:
+        config = (
+            self.session.query(ProviderConfig)
+            .filter(ProviderConfig.provider_type == "telegram_state", ProviderConfig.provider_name == "selected_niche")
+            .one_or_none()
+        )
+        if config is None and create:
+            config = ProviderConfig(provider_type="telegram_state", provider_name="selected_niche", enabled=True, config_payload={})
+        return config
+
+    def _selected_niche(self) -> Niche | None:
+        config = self._telegram_state_config()
+        if config is None:
+            return None
+        niche_id = (config.config_payload or {}).get("selected_niche_id")
+        if not niche_id:
+            return None
+        return self.session.get(Niche, int(niche_id))
+
+    def _require_selected_niche(self) -> Niche:
+        niche = self._selected_niche()
+        if niche is None:
+            raise ValueError("Aktif nis secilmemis. Once /select_niche <niche_id> kullan.")
+        return niche
 
     @staticmethod
     def _parse_id_and_instruction(text: str, *, command: str) -> tuple[int, str]:
@@ -767,9 +852,12 @@ class TelegramBotService:
             "Komut Rehberi:\n\n"
             "/help\nBotta kullanabileceginiz tum komutlari ve amaclarini gosterir.\n\n"
             "/scan\nGunluk web tabanli trend niche taramasini calistirir.\n\n"
-            "/topics <niche_id>\nSecilen niche icindeki en cok izlenen konu basliklarini arastirir.\n\n"
+            "/select_niche <niche_id>\nBir niche'i aktif niche olarak sabitler.\n\n"
+            "/change_niche <niche_id>\nAktif niche'i degistirir.\n\n"
+            "/current_niche\nSu an sabitlenen niche'i gosterir.\n\n"
+            "/topics [niche_id]\nAktif niche veya verilen niche icindeki en cok izlenen konu basliklarini arastirir.\n\n"
             "/topic_prompt <niche_id> <konu_no>\nSecilen konu icin tek, odakli bir video promptu uretir.\n\n"
-            "/prompts <niche_id>\nSecilen niche icin 10 adet icerik promptu uretir.\n\n"
+            "/prompts [niche_id]\nAktif niche veya verilen niche icin 10 adet icerik promptu uretir.\n\n"
             "/video <prompt_id>\nSecilen prompttan video uretim istegi baslatir.\n\n"
             "/approve <niche|prompt|video> <id>\nSecilen kaydi onaylar ve pipeline'da bir sonraki asamaya gecmesini saglar.\n\n"
             "/reject <niche|prompt|video> <id>\nSecilen kaydi reddeder.\n\n"

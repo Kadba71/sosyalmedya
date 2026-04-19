@@ -198,7 +198,7 @@ def test_scan_command_lists_discovered_niches(monkeypatch) -> None:
     assert "Bulunan nisler:" in result["message"]
     assert "- 10: Kripto Ozeti | skor 88" in result["message"]
     assert "- 11: Teknoloji Firsatlari | skor 81" in result["message"]
-    assert "/topics <niche_id>" in result["message"]
+    assert "/select_niche <niche_id>" in result["message"]
 
 
 def test_topics_command_lists_researched_topics_with_buttons(monkeypatch) -> None:
@@ -244,6 +244,123 @@ def test_topics_command_lists_researched_topics_with_buttons(monkeypatch) -> Non
     assert "Niche secildi: AI otomasyon" in result["message"]
     assert "1. En cok izlenen 3 otomasyon | skor 94" in result["message"]
     assert result["reply_markup"]["inline_keyboard"][0][0]["callback_data"] == f"topicprompt:{niche.id}:1"
+
+
+def test_select_niche_persists_active_niche_and_prompts_use_it(monkeypatch) -> None:
+    session = build_session()
+    settings = Settings(secret_key="test-secret")
+    service = TelegramBotService(session, settings)
+
+    service.handle_update(
+        TelegramWebhookPayload(
+            message={
+                "text": "/start",
+                "chat": {"id": 111},
+                "from": {"id": 222, "first_name": "Owner", "username": "owner"},
+            }
+        )
+    )
+
+    owner = session.query(User).first()
+    project = session.query(Project).filter(Project.user_id == owner.id).one()
+    niche = Niche(project_id=project.id, name="Turk Futbol Gundemi", description="desc", source="llm", trend_score=90, context_payload={})
+    session.add(niche)
+    session.commit()
+
+    select_result = service.handle_update(
+        TelegramWebhookPayload(
+            message={
+                "text": f"/select_niche {niche.id}",
+                "chat": {"id": 111},
+                "from": {"id": 222, "first_name": "Owner", "username": "owner"},
+            }
+        )
+    )
+
+    assert "Aktif nis" in select_result["message"]
+
+    prompt = Prompt(
+        niche_id=niche.id,
+        title="Prompt 1",
+        body="Metin",
+        target_platforms=["youtube"],
+        tone="engaging",
+        rank=1,
+        expires_at=datetime.utcnow() + timedelta(hours=24),
+        metadata_payload={},
+    )
+    session.add(prompt)
+    session.commit()
+
+    monkeypatch.setattr(service.orchestrator, "generate_prompts", lambda current_niche: [prompt])
+
+    prompt_result = service.handle_update(
+        TelegramWebhookPayload(
+            message={
+                "text": "/prompts",
+                "chat": {"id": 111},
+                "from": {"id": 222, "first_name": "Owner", "username": "owner"},
+            }
+        )
+    )
+
+    assert "Turk Futbol Gundemi icin 1 prompt uretildi." in prompt_result["message"]
+
+
+def test_change_niche_updates_current_niche() -> None:
+    session = build_session()
+    settings = Settings(secret_key="test-secret")
+    service = TelegramBotService(session, settings)
+
+    service.handle_update(
+        TelegramWebhookPayload(
+            message={
+                "text": "/start",
+                "chat": {"id": 111},
+                "from": {"id": 222, "first_name": "Owner", "username": "owner"},
+            }
+        )
+    )
+
+    owner = session.query(User).first()
+    project = session.query(Project).filter(Project.user_id == owner.id).one()
+    niche_one = Niche(project_id=project.id, name="Birinci Nis", description="desc", source="llm", trend_score=90, context_payload={})
+    niche_two = Niche(project_id=project.id, name="Ikinci Nis", description="desc", source="llm", trend_score=80, context_payload={})
+    session.add_all([niche_one, niche_two])
+    session.commit()
+
+    service.handle_update(
+        TelegramWebhookPayload(
+            message={
+                "text": f"/select_niche {niche_one.id}",
+                "chat": {"id": 111},
+                "from": {"id": 222, "first_name": "Owner", "username": "owner"},
+            }
+        )
+    )
+
+    change_result = service.handle_update(
+        TelegramWebhookPayload(
+            message={
+                "text": f"/change_niche {niche_two.id}",
+                "chat": {"id": 111},
+                "from": {"id": 222, "first_name": "Owner", "username": "owner"},
+            }
+        )
+    )
+
+    current_result = service.handle_update(
+        TelegramWebhookPayload(
+            message={
+                "text": "/current_niche",
+                "chat": {"id": 111},
+                "from": {"id": 222, "first_name": "Owner", "username": "owner"},
+            }
+        )
+    )
+
+    assert "Aktif nis degistirildi." in change_result["message"]
+    assert f"Aktif nis: {niche_two.id} - Ikinci Nis" in current_result["message"]
 
 
 def test_topic_prompt_command_generates_topic_specific_prompt(monkeypatch) -> None:
@@ -512,7 +629,7 @@ def test_prompts_command_handles_missing_id() -> None:
         )
     )
 
-    assert "Kullanim: /prompts <id>" == result["message"]
+    assert "Aktif nis secilmemis. Once /select_niche <niche_id> kullan." == result["message"]
 
 
 def test_approve_command_handles_invalid_target_type() -> None:

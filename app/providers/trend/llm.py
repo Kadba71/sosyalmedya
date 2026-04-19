@@ -23,6 +23,7 @@ class LLMTrendProvider(TrendProvider):
             "Use the supplied web-based multi-platform signals from Google Trends, YouTube, TikTok, Instagram and Facebook. "
             "Return exactly 5 niche candidates ranked by opportunity. "
             "For each item include: name, description, trend_score (0-100), source, keywords, audience, monetization_angle, platform_signals. "
+            "All niche names and descriptions must be written in Turkish, even if source signals are English. "
             "Prefer niches suitable for automated daily video production and Turkish audience relevance. "
             f"Signals JSON: {signals}"
         )
@@ -66,6 +67,7 @@ class LLMTrendProvider(TrendProvider):
             "Find the most watched and most clickable content topics inside this niche right now. "
             f"Return exactly {count} topics ranked by likely view potential. "
             "For each item include: title, summary, interest_score (0-100), keywords, content_angle, suggested_hook, viewer_problem, source. "
+            "All topic titles and summaries must be written in Turkish. "
             "Prefer topics suitable for short Turkish social video automation. "
             f"Niche context JSON: {niche_context or {}}. Signals JSON: {signals}"
         )
